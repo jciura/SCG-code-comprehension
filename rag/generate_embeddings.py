@@ -1,7 +1,6 @@
 import torch
 from transformers import AutoTokenizer, AutoModel
 import json
-import chardet
 
 def mean_pooling(token_embeddings, attention_mask):
     input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()

@@ -7,3 +7,5 @@ transformers
 faiss-cpu
 fastapi
 pydantic
+uvicorn
+chromadb
