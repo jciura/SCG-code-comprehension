@@ -1,10 +1,11 @@
 import json
 
 import networkx as nx
+from typing import Dict, Any
 
 
 # Konwerter pliku z rozszerzeniem .gdf (pliku grafu)
-def load_gdf(filepath):
+def load_gdf(filepath: str) -> nx.DiGraph:
     G = nx.DiGraph()
 
     with open(filepath, 'r', encoding='utf-8') as f:
@@ -50,7 +51,7 @@ def load_gdf(filepath):
     return G
 
 
-def load_crucial_from_js(js_path):
+def load_crucial_from_js(js_path: str) -> Dict[str, Any]:
     with open(js_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
@@ -66,7 +67,7 @@ def load_crucial_from_js(js_path):
 # Wyciągnięcie wskaźników wagi węzłów z pliku partition.js
 # (zrobione poleceniem: scg-cli crucial <Sciezka>)
 # scg-cli robi plik partiton.js zamiast crucial.js - trzeba zmienić w tamtym kodzie
-def extract_scores(js_path):
+def extract_scores(js_path: str) -> Dict[str, Dict[str, float]]:
     data = load_crucial_from_js(js_path)
     scores = {}
 
@@ -80,8 +81,3 @@ def extract_scores(js_path):
 
     return scores
 
-
-if __name__ == '__main__':
-    load_gdf("../projects/test.gdf")
-
-    extract_scores("../projects/partition.js")

@@ -1,13 +1,14 @@
 from transformers import AutoTokenizer, AutoModel
 import torch
+from typing import Tuple, Optional
 
 
-_codebert_model = None
-_codebert_tokenzier = None
-_device = None
+_codebert_model: Optional[AutoModel] = None
+_codebert_tokenzier: Optional[AutoTokenizer] = None
+_device: Optional[torch.device] = None
 
 
-def get_codebert_model():
+def get_codebert_model() -> Tuple[AutoModel, AutoTokenizer, torch.device]:
     global _codebert_model, _codebert_tokenzier, _device
     if _codebert_model is None:
         #print("Laduje model CodeBERT")
@@ -20,6 +21,6 @@ def get_codebert_model():
     return _codebert_model, _codebert_tokenzier, _device
 
 
-def _get_cached_model():
+def _get_cached_model() -> bool:
     get_codebert_model()
     return True

@@ -1,16 +1,15 @@
 import json
 import logging
 import os
-from typing import List
+from typing import List, Dict, Any
 import time
-
 import httpx
 from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-from rag.retriver import similar_questions, similar_code, similar_node
-from rag.similar_node_optimization import similar_node_fast
+from pydantic import ValidationError
+from models import PrompRequest, SimpleRAGResponse, NodeRAGResponse, PerformanceMetrics, ConversationHistory
+from graph.similar_node_optimization import similar_node_fast
+from prompt import build_intent_aware_prompt, post_process_answer, analyze_user_intent
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,28 +24,26 @@ app.add_middleware(
 )
 
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "codellama:7b-instruct"
-# CODE_EMBEDDINGS = "embeddings/embedding.jsonl"
-# QA_EMBEDDINGS = "embeddings/qa_embedding.json"
-CODE_EMBEDDINGS = "embeddings/embedding_project_fixed.jsonl"
-QA_EMBEDDINGS = "embeddings/qa_embedding_project_fixed.json"
+# MODEL_NAME = "deepseek-coder:6.7b"
+# MODEL_NAME = "codellama:7b-instruct"
+MODEL_NAME = "llama3.1:8b"
 NODE_EMBEDDINGS = "embeddings/node_embedding.json"
 NODE_CONTEXT_HISTORY = "embeddings/node_context_history.json"
-#MODEL_NAME_EMBEDDING = "all-MiniLM-L6-v2"
 HISTORY_LIMIT = 5
 CODEBERT_MODEL_NAME = "microsoft/codebert-base"
 BASE_DIR = os.path.abspath("projects")
 
-timeout = httpx.Timeout(120.0)
-client = httpx.AsyncClient(timeout=timeout)
+timeout: httpx.Timeout = httpx.Timeout(200.0)
+client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
+conversation_history: ConversationHistory = ConversationHistory(max_history_pairs=HISTORY_LIMIT)
 
 
-def warm_up_models():
+def warm_up_models() -> None:
     logger.info("Warming up models...")
     start_time = time.time()
 
     try:
-        from rag.similar_node_optimization import get_graph_model
+        from graph.similar_node_optimization import get_graph_model
         from rag_optimization import _get_cached_model
 
         get_graph_model()
@@ -59,16 +56,21 @@ def warm_up_models():
         logger.info(f"RAG models zaladowane w {warum_time:.2f}s")
 
     except Exception as e:
-        logger.error("Model warum failed")
+        logger.error(f"Model warmup failed: {e}")
 
 
-class PrompRequest(BaseModel):
-    question: str
-    context: str = ""
-    history: List[dict] = []
+def log_performance_metrics(metrics: PerformanceMetrics) -> None:
+    logger.info(
+        f"Performance [{metrics.endpoint}]: "
+        f"total={metrics.total_time:.3f}s, "
+        f"rag={metrics.rag_time:.3f}s, "
+        f"llm={metrics.llm_time:.3f}s, "
+        f"context_len={metrics.context_length}, "
+        f"response_len={metrics.response_length}"
+    )
 
 
-async def response(prompt: str):
+async def get_llm_response(prompt: str) -> str:
     payload = {
         "model": MODEL_NAME,
         "prompt": prompt,
@@ -78,247 +80,327 @@ async def response(prompt: str):
         response = await client.post(OLLAMA_API_URL, json=payload)
         response.raise_for_status()
         result = response.json()
-        return result["response"]
+
+        if "response" not in result:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Invalid response format from Ollama"
+            )
+
+        answer = result["response"]
+        if not answer or not answer.strip():
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Empty response from Ollama"
+            )
+        return answer.strip()
     except httpx.HTTPStatusError as exc:
+        error_detail = f"Ollama API error {exc.response.status_code}"
         try:
             error_details = exc.response.json()
+            error_detail += f": {error_details}"
         except Exception:
-            error_details = exc.response.text
-
-        logger.error(f"Ollama API returned an error: {exc.response.status_code} - {error_details}")
+            error_detail += f": {exc.response.text}"
+        logger.error(error_detail)
         raise HTTPException(
             status_code=exc.response.status_code,
-            detail=f"Ollama API error {exc.response.status_code}: {error_details}"
+            detail=error_detail
         )
     except httpx.RequestError as exc:
         logger.error(f"Request error while calling Ollama API: {exc}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Request error while calling Ollama API: {exc}"
+            detail=f"Request error: {str(exc)}"
+        )
+
+
+@app.post("/ask", response_model=SimpleRAGResponse)
+async def ask(req: PrompRequest) -> SimpleRAGResponse:
+    start_time = time.time()
+    try:
+        prompt = f"Context: {req.context}\n\nQuestion: {req.question}\nAnswer:"
+        llm_start = time.time()
+        answer = await get_llm_response(prompt)
+        llm_time = time.time() - llm_start
+        total_time = time.time() - start_time
+        response = SimpleRAGResponse(
+            answer=answer,
+            processing_time=total_time
+        )
+        metrics = PerformanceMetrics(
+            endpoint="/ask",
+            total_time=total_time,
+            llm_time=llm_time,
+            context_length=len(req.context),
+            response_length=len(answer)
+        )
+        log_performance_metrics(metrics)
+        return response
+    except ValidationError as e:
+        logger.error(f"Validation error in /ask: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Validation error: {str(e)}"
         )
     except Exception as exc:
-        logger.error(f"Unexpected error: {exc}")
+        logger.error(f"Unexpected error in /ask: {exc}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error: {exc}"
+            detail=f"Unexpected error: {str(exc)}"
         )
 
 
-@app.post("/ask")
-async def ask(req: PrompRequest):
-    prompt = f"Context: {req.context}\n\nQuestion: {req.question}\nAnswer:"
-    answer = await response(prompt)
-    return {"answer": answer}
-
-
-
-async def load_code(file_path: str):
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, "r") as f:
-                return f.read()
-        except Exception as e:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to read file")
-    else:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-            detail="File not found")
-
-
-@app.post("/ask_code")
-async def ask_code(file_path: str, question: str):
-    code = await load_code(file_path)
-    prompt_request = PrompRequest(question=question, context=code)
-    return await ask(prompt_request)
-
-
-
-
-@app.post("/ask_rag_code")
-async def ask_code_rag(req: PrompRequest):
+async def load_code(file_path: str) -> str:
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found"
+        )
     try:
-        logger.info(f"Received question: {req.question}")
-        logger.info(f"Using embedding file: {CODE_EMBEDDINGS}")
+        with open(file_path, "r") as f:
+            content = f.read()
+        if not content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File is empty"
+            )
+        return content
+    except Exception as e:
+        logger.error(f"Failed to read file {file_path}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to read file"
+        )
 
-        if req.context:
-            logger.warning("Context provided in request will be ignored  - RAG generates its own context")
 
-
-        matches = similar_code(req.question, CODE_EMBEDDINGS, model_name=CODEBERT_MODEL_NAME)
-        logger.info(f"Found {len(matches)} releveant code matches")
-        context_parts = []
-        sources = []
-        for score, chunk in matches:
-            file_name = chunk["metadata"]["file"]
-            logger.info(f"Using code from {file_name} with similarity score: {score}")
-            context_parts.append(f"# From file: {file_name}\n{chunk['content']}")
-            sources.append({
-                "file": file_name,
-                "similarity_score": round(float(score), 3)
-            })
-        context = "\n\n".join(context_parts)
-        logger.info(f"Generated context length: {len(context)} character")
-        prompt = f"Context:\n{context}\n\nQuestion: {req.question}\nAnswer:"
-        answer = await response(prompt)
-        return {
-            "answer": answer,
-            "used_context": context,
-            "sources": sources
-        }
+@app.post("/ask_code", response_model=SimpleRAGResponse)
+async def ask_code(file_path: str, question: str) -> SimpleRAGResponse:
+    start_time = time.time()
+    try:
+        code = await load_code(file_path)
+        prompt_request = PrompRequest(question=question, context=code)
+        response = await ask(prompt_request)
+        response.processing_time = time.time() - start_time
+        return response
     except Exception as exc:
-        logger.error(f"Error in RAG: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error in RAG: {str(exc)}")
+        logger.error(f"Error in /ask_code: {exc}")
+        raise
 
 
-@app.post("/ask_rag_node")
-async def ask_rag_node(req: PrompRequest):
-
+@app.post("/ask_rag_node", response_model=NodeRAGResponse)
+async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
     total_start_time = time.time()
     try:
-
+        intent_start_time = time.time()
+        user_intent = analyze_user_intent(req.question)
+        intent_time = time.time() - intent_start_time
+        logger.info(f"User intent analysis: {intent_time:.3f}s - {user_intent}")
         rag_start_time = time.time()
         matches, context = similar_node_fast(req.question, model_name=CODEBERT_MODEL_NAME)
         rag_time = time.time() - rag_start_time
-
+        logger.info(f"RAG processing: {rag_time:.3f}s, found {len(matches)} matches")
         history_start_time = time.time()
         try:
             with open(NODE_CONTEXT_HISTORY, "r", encoding="utf-8") as f:
-                history = json.load(f)
+                history_data = json.load(f)
+            conversation_history.messages.clear()
+            for msg in history_data:
+                if isinstance(msg, dict) and "role" in msg and "content" in msg:
+                    conversation_history.add_message(msg["role"], msg["content"])
         except FileNotFoundError:
-            history = []
-        history_time = time.time() - history_start_time
-        logger.info(f"Hisotria zaladowana: {history_time:.3f}s - {len(history)} wiadomosci")
+            logger.info("No conversation history found")
+            conversation_history.messages.clear()
+        except (json.JSONDecodeError, ValidationError) as e:
+            logger.warning(f"Invalid conversation history format: {e}")
+            conversation_history.messages.clear()
+        history_load_time = time.time() - history_start_time
+        logger.info(f"History loaded: {history_load_time:.3f}s, {len(conversation_history.messages)} messages")
 
         prompt_start_time = time.time()
-        prompt_parts = []
-        if context:
-            prompt_parts.append(f"Context:\n{context}\n")
-
-        for msg in history:
-            role = msg.get("role", "user").capitalize()
-            content = msg.get("content", "")
-            prompt_parts.append(f"{role}: {content}")
-
-        prompt_parts.append(f"User: {req.question}")
-        prompt_parts.append("Assistant:")
-
-        prompt = "\n".join(prompt_parts)
+        prompt = build_intent_aware_prompt(
+            question=req.question,
+            context=context,
+            intent=user_intent,
+            conversation_history=conversation_history
+        )
         prompt_time = time.time() - prompt_start_time
-        logger.info(f"Prompt stworzony {prompt_time:.3f}s, dlugosc: {len(prompt)} znakow")
+        logger.info(f"Intent-aware prompt built: {prompt_time:.3f}s, length: {len(prompt)} chars")
 
+        if logger.level <= logging.DEBUG:
+            logger.debug("Generated prompt:")
+            logger.debug(prompt)
 
         llm_start_time = time.time()
-        answer = await response(prompt)
+        answer = await get_llm_response(prompt)
         llm_time = time.time() - llm_start_time
-        logger.info(f"LLM odpowiedz {llm_time:.3f}s, dlugosc odpowiedzi: {len(answer)} znakow")
+        logger.info(f"LLM response: {llm_time:.3f}s, length: {len(answer)} chars")
 
+        if logger.level <= logging.DEBUG:
+            logger.debug("LLM answer:")
+            logger.debug(answer)
+
+        processed_answer = post_process_answer(answer, user_intent)
 
         history_save_start_time = time.time()
-        history.append({"role": "user", "content": req.question})
-        history.append({"role": "assistant", "content": answer})
+        conversation_history.add_message("user", req.question)
+        conversation_history.add_message("assistant", processed_answer)
 
-        if len(history) > HISTORY_LIMIT * 2:
-            history = history[-HISTORY_LIMIT * 2:]
+        try:
+            history_data = [
+                {"role": msg.role, "content": msg.content, "timestamp": msg.timestamp}
+                for msg in conversation_history.messages
+            ]
 
-        with open(NODE_CONTEXT_HISTORY, "w", encoding="utf-8") as f:
-            json.dump(history, f, ensure_ascii=False, indent=4)
+            with open(NODE_CONTEXT_HISTORY, "w", encoding="utf-8") as f:
+                json.dump(history_data, f, ensure_ascii=False, indent=4)
+
+        except Exception as e:
+            logger.error(f"Failed to save conversation history: {e}")
 
         history_save_time = time.time() - history_save_start_time
-        logger.info(f"Hstoria zapisana: {history_save_time: .3f}s")
-        return {
-            "answer": answer,
-            "used_context": context
-        }
+        logger.info(f"History saved: {history_save_time:.3f}s")
+        total_time = time.time() - total_start_time
+
+        from graph.retriver import enhanced_classify_question
+        analysis = enhanced_classify_question(req.question)
+        category = analysis.get("category", "general")
+
+        response = NodeRAGResponse(
+            answer=processed_answer,
+            used_context=context,
+            processing_time=total_time,
+            question_category=category
+        )
+
+        metrics = PerformanceMetrics(
+            endpoint="/ask_rag_node",
+            total_time=total_time,
+            rag_time=rag_time,
+            llm_time=llm_time,
+            history_load_time=history_load_time,
+            history_save_time=history_save_time,
+            context_length=len(context),
+            response_length=len(processed_answer)
+        )
+        log_performance_metrics(metrics)
+        return response
 
     except Exception as exc:
         logger.error(f"Error in RAG Node: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error in RAG Node: {str(exc)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error in RAG Node: {str(exc)}"
+        )
 
 
-# Listowanie plików w katalogu - potrzebna do frontu
+
 @app.get("/files", response_model=List[str])
-def list_files(path: str = ""):
+def list_files(path: str = "") -> List[str]:
     target_dir = os.path.abspath(os.path.join(BASE_DIR, path))
     if not target_dir.startswith(BASE_DIR):
-        raise HTTPException(status_code=403, detail="Access denied")
-
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
     try:
-        return os.listdir(target_dir)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Folder not found")
+        if not os.path.exists(target_dir):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Folder not found"
+            )
+        files = os.listdir(target_dir)
+        return sorted(files)
+    except PermissionError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permission denied"
+        )
 
 
-# Listowanie kodu żródłowego z pliku
 @app.get("/file")
-def get_file(path: str = Query(..., description="Relative path to the file")):
+def get_file(path: str = Query(..., description="Relative path to the file")) -> dict:
     file_path = os.path.abspath(os.path.join(BASE_DIR, path))
     if not file_path.startswith(BASE_DIR):
-        raise HTTPException(status_code=403, detail="Access denied")
-
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
     if not os.path.isfile(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
-
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found"
+        )
     try:
         with open(file_path, "r", encoding="utf-8") as f:
-            return {"content": f.read()}
+            content = f.read()
+        return {
+            "content": content,
+            "file_path": path,
+            "size": len(content),
+            "timestamp": time.time()
+        }
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is not text or has unsupported encoding"
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+        logger.error(f"Error reading file {file_path}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 
 @app.on_event("startup")
 async def startup_event():
-
+    logger.info("Starting RAG application...")
     warm_up_models()
 
     try:
-        logger.info("Starting model warmup...")
-        try:
-            health_response = await client.get("http://localhost:11434/api/tags")
-            health_response.raise_for_status()
-            logger.info("Ollama server is running")
-        except httpx.ConnectError:
-            logger.error("Cannot connect to Ollama server")
-            return
-        except Exception as e:
-            logger.warning(f"Health check failed: {e}")
+        logger.info("Checking Ollama server connection...")
+        health_response = await client.get("http://localhost:11434/api/tags")
+        health_response.raise_for_status()
+        logger.info("Ollama server is running")
+    except httpx.ConnectError:
+        logger.error("Cannot connect to Ollama server")
+        return
+    except Exception as e:
+        logger.warning(f"Health check failed: {e}")
 
-        try:
-            keep_alive_payload = {
-                "model": MODEL_NAME,
-                "prompt": "",
-                "keep_alive": -1
-            }
-            await client.post(OLLAMA_API_URL, json=keep_alive_payload)
-            logger.info(f"Model {MODEL_NAME} configured to stay in memory permanently")
-        except Exception as e:
-            logger.warning(f"Failed to configure model persistence: {e}")
+    try:
+        keep_alive_payload = {
+            "model": MODEL_NAME,
+            "prompt": "",
+            "keep_alive": -1
+        }
+        await client.post(OLLAMA_API_URL, json=keep_alive_payload)
+        logger.info(f"Model {MODEL_NAME} configured to stay in memory permanently")
+    except Exception as e:
+        logger.warning(f"Failed to configure model persistence: {e}")
+    try:
         start_time = time.time()
         warmup_payload = {
             "model": MODEL_NAME,
-            "prompt": "this is a warmup.",
+            "prompt": "This is a warmup.",
             "stream": False,
-            "options": {
-                "num_predict": 5
-            }
+            "options": {"num_predict": 5}
         }
 
         response = await client.post(OLLAMA_API_URL, json=warmup_payload)
         response.raise_for_status()
 
         warmup_time = time.time() - start_time
-        logger.info(f"Model {MODEL_NAME} warmed up successfully in {warmup_time:.2f} seconds!")
+        logger.info(f"Model {MODEL_NAME} warmed up successfully in {warmup_time:.2f} seconds")
 
-    except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error during warmup: {e.response.status_code} - {e.response.text}")
-    except httpx.RequestError as e:
-        logger.error(f"Request error during warmup: {e}")
     except Exception as e:
-        logger.error(f"Unexpected error during warmup: {e}")
+        logger.error(f"Model warmup failed: {e}")
+
+    logger.info("RAG application startup completed")
 
 
 @app.on_event("shutdown")
 async def shutdown():
-    logger.info("Shutting down...")
+    logger.info("Shutting down RAG application...")
     await client.aclose()
     logger.info("HTTP client closed")

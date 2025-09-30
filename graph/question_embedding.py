@@ -1,8 +1,9 @@
 import json
 
 from sentence_transformers import SentenceTransformer
+from typing import Dict, List
 
-example_questions = {
+example_questions: Dict[str, List[str]] = {
     "general": [
         "describe the project", "what is the system about", "what does it do",
         "how does the system work", "which modules exist", "what is the architecture",
@@ -17,13 +18,12 @@ example_questions = {
     ],
     "specific": [
         "what are the parameters", "what does method return",
-        "what does variable do", "how to call method", "how to call function",
-        "wh"
+        "what does variable do", "how to call method", "how to call function"
     ]
 }
 
 
-def generate_and_save_classifier_embeddings(output_path: str):
+def generate_and_save_classifier_embeddings(output_path: str) -> None:
     model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
     example_embeddings = {
         label: model.encode(questions, convert_to_tensor=False).tolist()
@@ -33,5 +33,3 @@ def generate_and_save_classifier_embeddings(output_path: str):
         json.dump(example_embeddings, f, ensure_ascii=False, indent=2)
 
 
-if __name__ == "__main__":
-    generate_and_save_classifier_embeddings("../embeddings/classifier_example_embeddings.json")
