@@ -302,13 +302,23 @@ def find_usage_nodes(collection: Any, target_class_name: str, max_results: int =
         return []
 
 
-async def general_question(question, collection, top_k=5, max_neighbors=3, code_snippet_limit=100):
+# TODO - lepsze filtrowanie, na razie funckcja bierze praktycznie wszystko, może na magisterce wymyślą jak to robić
+async def general_question(question, collection, top_k=5, max_neighbors=3, code_snippet_limit=500, batch_size=5):
+    kind_weights = {
+        "CLASS": 2.0,
+        "INTERFACE": 1.8,
+        "METHOD": 1.0,
+        "VARIABLE": 0.8,
+        "PARAMETER": 0.5,
+        "CONSTRUCTOR": 1.2,
+    }
+
     # 1. Wybranie węzłów po kluczowych słowach
     classification_prompt = f"""
     Pytanie użytkownika: "{question}"
     Twoje zadanie:
     1. Określ, jakie typy węzłów (CLASS, METHOD, VARIABLE, PARAMETER, CONSTRUCTOR, VALUE) mogą być najbardziej istotne.
-    2. Podaj 3-5 słów kluczowych, które powinny występować w nazwach tych węzłów.
+    2. Podaj 5-10 słów kluczowych, które powinny występować w nazwach tych węzłów.
     Odpowiedz tylko w postaci JSON, np.:
     {{"kinds": ["CLASS", "METHOD"], "keywords": ["frontend","controller","view"]}}
     Żadnych komentarzy
@@ -325,6 +335,31 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
 
     all_nodes = collection.get(include=["metadatas", "documents"])
 
+    # Obsługa specyficznego pytania o najważniejsze klasy
+    if any(kw in question.lower() for kw in ["najważniejsze klasy", "core classes", "main classes"]):
+        candidate_nodes = []
+        for i, node_id in enumerate(all_nodes["ids"]):
+            meta = all_nodes["metadatas"][i]
+            if meta.get("kind", "").upper() == "CLASS":
+                centrality_score = len(meta.get("related_entities", []))
+                candidate_nodes.append((centrality_score, node_id, meta, all_nodes["documents"][i] or ""))
+        top_nodes = sorted(candidate_nodes, key=lambda x: x[0], reverse=True)[:top_k]
+        return [(score, {"node": node_id, "metadata": meta, "code": doc})
+                for score, node_id, meta, doc in top_nodes]
+
+        # Obsługa specyficznego pytania o najważniejsze metody
+    if any(kw in question.lower() for kw in
+           ["najważniejsze metody", "core methods", "main methods", "core functions", "main functions"]):
+        candidate_nodes = []
+        for i, node_id in enumerate(all_nodes["ids"]):
+            meta = all_nodes["metadatas"][i]
+            if meta.get("kind", "").upper() == "METHOD":
+                centrality_score = len(meta.get("related_entities", []))
+                candidate_nodes.append((centrality_score, node_id, meta, all_nodes["documents"][i] or ""))
+        top_nodes = sorted(candidate_nodes, key=lambda x: x[0], reverse=True)[:top_k]
+        return [(score, {"node": node_id, "metadata": meta, "code": doc})
+                for score, node_id, meta, doc in top_nodes]
+
     print("Kinds: ", kinds, "keywords: ", keywords)
 
     candidate_nodes = []
@@ -332,18 +367,16 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
         node_id = all_nodes["ids"][i]
         metadata = all_nodes["metadatas"][i]
         doc = all_nodes["documents"][i] or ""
-
         kind = metadata.get("kind", "").upper()
-        label = metadata.get("label", "").lower()
 
         if kinds and kind not in kinds:
             continue
 
-        score = 0
-        if not kinds or kind in kinds:
-            score += 1
+        score = 1 if (not kinds or kind in kinds) else 0
 
-        score += sum(1 for kw in keywords if kw in label or kw in doc.lower())
+        for kw in keywords:
+            if kw in node_id.lower():
+                score += kind_weights.get(kind, 1.0)
 
         if score == 0:
             score = 0.1
@@ -352,55 +385,89 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
         hybrid_score = score * 1000 + combined_score
         candidate_nodes.append((node_id, metadata, doc, hybrid_score))
 
-    # TODO: Co z pustą listą kandydatów
+    # TODO: Co z pustą listą kandydatów - można dodać ze llm prosi zeby zadac bardziej precyzyjne pytanie
+    if not candidate_nodes:
+        print("Brak kandydatów, wybieram fallback top-5 wg combined")
+        fallback_nodes = sorted(
+            zip(all_nodes["ids"], all_nodes["metadatas"], all_nodes["documents"]),
+            key=lambda x: float(x[1].get("combined", 0.0)),
+            reverse=True
+        )[:top_k]
+        return [(1, {"node": nid, "metadata": meta, "code": doc}) for nid, meta, doc in fallback_nodes]
 
-    candidates_sorted = sorted(candidate_nodes, key=lambda x: x[3], reverse=True)
+    candidates_sorted = sorted(candidate_nodes, key=lambda x: x[3], reverse=True)[:top_k]
 
-    candidate_nodes = candidates_sorted[:top_k]
+    for candidate_node in candidates_sorted:
+        print(candidate_node[0])
 
-    # 2. Przejście po fragmentach kodu wybranych węzłów i zdecydowanie czy pomoże to w odpowiedzi na pytanie
+    # 2. Przejście po fragmentach kodu wybranych węzłów i zdecydowanie czy pomoże to w odpowiedzi na pytanie - z tworzeniem batchy wezlow powinno byc szybciej
     top_nodes = []
-    for node_id, metadata, doc, hybrid_score in candidate_nodes:
-        lines = doc.splitlines()
-        code_snippet = "\n".join(lines[:code_snippet_limit])
+    for i in range(0, len(candidates_sorted), batch_size):
+        batch = candidates_sorted[i:i + batch_size]
+        code_snippets_map = []
+        for node_id, meta, doc, hybrid_score in batch:
+            snippet = "\n".join(doc.splitlines())[:code_snippet_limit]
+            code_snippets_map.append({"id": node_id, "code": snippet})
+
         prompt = f"""
         Pytanie: '{question}'
-    
-        Fragment kodu '{node_id}':
-        {code_snippet}
         
-        Oceń od 1 do 5 czy ten fragment kodu z wybranego węzła:
-            - 1 = kompletnie nie pasuje do pytania
-            - 5 = dokładnie odpowiada na pytanie
-        Odpowiedz tylko liczbą.
+        Oto fragmenty kodu z różnych węzłów. Oceń każdy od 1 do 5:
+        1 = nie pasuje wcale do pytania i całość kodu raczej też nie zawiebra 
+        3 = fragment kodu nie pasuje, ale raczej na pewno kod jego sąsiada da odpowiedź na to pytanie
+        5 = dokładnie odpowiada na pytanie albo całość kodu powinna na nie odpowiedieć.
+        
+         Zwróć JSON w formacie:
+        [{{"id": "node_id", "score": 3}}, ...]
+        Zadnych komentarzy
+        
+        Fragmenty:
+        {json.dumps(code_snippets_map, indent=2)}
         """
         answer = await call_llm(prompt)
         try:
-            score = int(answer.strip())
-            if score < 1:
-                score = 1
-            elif score > 5:
-                score = 5
+            scores = json.loads(answer)
         except:
-            score = 1
+            scores = []
+        print(scores)
+        for s in scores:
+            node_id = s.get("id")
+            score = int(s.get("score", 0))
+            if score >= 3:
+                node_tuple = next((c for c in batch if c[0] == node_id), None)
+                if node_tuple:
+                    _, metadata, doc, _ = node_tuple
+                    top_nodes.append((score, {"node": node_id, "metadata": metadata, "code": doc}))
 
-        if score >= 4:
-            top_nodes.append((score, {"node": node_id, "metadata": metadata, "code": doc}))
+                    related_entities_str = metadata.get("related_entities", "")
+                    try:
+                        related_entities = json.loads(related_entities_str)
+                    except json.JSONDecodeError:
+                        related_entities = []
 
-            #TODO Jakaś dobra deduplikacja tych kodów
-            related_entities = metadata.get("related_entities", [])
-            for neighbor_id in related_entities[:max_neighbors]:
-                neighbor_result = collection.get(ids=[neighbor_id], include=["metadatas", "documents"])
-                if neighbor_result["ids"]:
-                    neighbor_metadata = neighbor_result["metadatas"][0]
-                    neighbor_code = neighbor_result["documents"][0] or ""
-                    top_nodes.append(
-                        (score - 1, {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_code}))
+                    for neighbor_id in related_entities[:max_neighbors]:
+                        if neighbor_id not in {n[1]["node"] for n in top_nodes}:
+                            neighbor_res = collection.get(ids=[neighbor_id], include=["metadatas", "documents"])
+                            if neighbor_res["ids"]:
+                                neighbor_meta = neighbor_res["metadatas"][0]
+                                neighbor_doc = neighbor_res["documents"][0] or ""
+                                top_nodes.append(
+                                    (score - 1, {"node": neighbor_id, "metadata": neighbor_meta, "code": neighbor_doc}))
 
-    top_nodes.sort(key=lambda x: x[0], reverse=True)[:top_k]
+    final_top_nodes = top_nodes.copy()
+    for score, node_data in top_nodes:
+        if node_data["metadata"].get("kind") == "CLASS":
+            class_name = node_data["metadata"].get("label")
+            usage_nodes = find_usage_nodes(collection, class_name, max_results=max_usage_nodes_for_context)
+            for u_score, u_node_id, u_doc, u_metadata in usage_nodes:
+                final_top_nodes.append((u_score - 1, {"node": u_node_id, "metadata": u_metadata, "code": u_doc}))
+
+    top_nodes = sorted(top_nodes, key=lambda x: x[0], reverse=True)
+    print("TOP NODES:")
+    for node in top_nodes:
+        print(node[1]["node"])
 
     return top_nodes
-
 
 async def similar_node_fast(question: str, model_name: str = "microsoft/codebert-base", top_k: int = 20) -> Tuple[
     List[Tuple[float, Dict[str, Any]]], str]:
@@ -419,8 +486,8 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
         pairs = extract_key_value_pairs_simple(question)
         print(f"Pytanie: '{question}'")
         print(f"Wyciągnięte pary: {pairs}")
-        embeddings_input = []
 
+        embeddings_input = []
         for key, value in pairs:
             embeddings_input.append(f"{key} {value}" if key else value)
 
@@ -431,8 +498,8 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
         category = enhanced_classify_question(question).get("category", "general")
         confidence = enhanced_classify_question(question).get("confidence", 0.5)
 
-        if category == "general" or not pairs:
-            top_nodes = await general_question(question, collection, 5, 3)
+        if not pairs:
+            top_nodes = await general_question(question, collection, 5, 2)
             full_context = build_context(top_nodes, category, confidence)
             return top_nodes, full_context or "<NO CONTEXT FOUND>"
 

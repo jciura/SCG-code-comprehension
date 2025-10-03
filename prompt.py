@@ -1,4 +1,5 @@
 from typing import Dict, Any
+
 from models import ConversationHistory
 
 
@@ -13,6 +14,7 @@ def analyze_user_intent(question: str) -> Dict[str, Any]:
         "user_expertise_level": "intermediate"
     }
 
+    # Mozna to przerobić na pytanie llm o intencje i powinien sobie poradzic tez z jezykiem polskim
     if any(word in question for word in ['used', 'where', 'usage', 'called', 'references', 'invoked']):
         intent["primary_intent"] = "usage"
         intent["requires_usage_info"] = True
@@ -28,6 +30,13 @@ def analyze_user_intent(question: str) -> Dict[str, Any]:
     elif any(word in question for word in ['error', 'exception', 'throw', 'catch', 'fail']):
         intent["primary_intent"] = "exception"
         intent["requires_examples"] = True
+    elif any(word in question for word in ['refactor', 'clean', 'improve', 'optimize', 'performance', 'efficiency']):
+        intent["primary_intent"] = "refactoring"
+        intent["requires_examples"] = True
+    elif any(word in question for word in ['dependency', 'relation', 'coupling', 'architecture', 'design pattern']):
+        intent["primary_intent"] = "architecture"
+        intent["requires_examples"] = True
+
 
     if any(word in question for word in ['example', 'sample', 'show me']):
         intent["secondary_intents"].append("examples")
@@ -36,8 +45,14 @@ def analyze_user_intent(question: str) -> Dict[str, Any]:
     if any(word in question for word in ['best practice', 'recommendation', 'should i']):
         intent["secondary_intents"].append("advice")
 
+    if any(word in question for word in ['vs', 'difference', 'compare', 'alternative']):
+        intent["secondary_intents"].append("comparison")
+
     if any(word in question for word in ['why', 'reason', 'purpose']):
         intent["secondary_intents"].append("reasoning")
+
+    if any(word in question for word in ['configure', 'setup', 'annotation', 'spring boot', 'properties']):
+        intent["primary_intent"] = "configuration"
 
     return intent
 
@@ -53,6 +68,16 @@ def build_intent_aware_prompt(question: str, context: str, intent: Dict[str, Any
         task = "Explain what this code element is and its purpose."
     elif primary_intent == "implementation":
         task = "Explain how this code works internally."
+    elif primary_intent == "testing":
+        task = "Show how this code is tested or can be tested."
+    elif primary_intent == "refactoring":
+        task = "Suggest possible improvements or refactorings."
+    elif primary_intent == "architecture":
+        task = "Analyze dependencies and architecture relations."
+    elif primary_intent == "configuration":
+        task = "Show how this code/configuration is set up and used."
+    elif primary_intent == "general":
+        task = "Answer the general question. If the answer is unclear, ask the user to be more specific."
     else:
         task = "Analyze the provided code."
 
