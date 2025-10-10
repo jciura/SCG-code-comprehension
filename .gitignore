@@ -6,3 +6,4 @@ projects/rich
 *.pyc
 *.sqlite3
 embeddings/chroma_storage/
+embeddings/node_context_history.json
