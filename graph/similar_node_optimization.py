@@ -405,7 +405,6 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
             continue
 
         score = 1 if (not kinds or kind in kinds) else 0
-
         for kw in keywords:
             if kw in node_id.lower():
                 score += kind_weights.get(kind, 1.0)
@@ -429,6 +428,7 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
     candidates_sorted = sorted(candidate_nodes, key=lambda x: x[3], reverse=True)[:top_k * 2]
 
     top_nodes = []
+    seen_nodes = set()
     for i in range(0, len(candidates_sorted), batch_size):
         batch = candidates_sorted[i:i + batch_size]
         code_snippets_map = []
@@ -463,7 +463,9 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
                 node_tuple = next((c for c in batch if c[0] == node_id), None)
                 if node_tuple:
                     _, metadata, doc, _ = node_tuple
-                    top_nodes.append((score, {"node": node_id, "metadata": metadata, "code": doc}))
+                    if node_id not in seen_nodes:
+                        top_nodes.append((score, {"node": node_id, "metadata": metadata, "code": doc}))
+                        seen_nodes.add(node_id)
 
                     related_entities_str = metadata.get("related_entities", "")
                     try:
@@ -472,17 +474,33 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
                     except:
                         related_entities = []
 
-                    for neighbor_id in related_entities[:max_neighbors]:
-                        if neighbor_id not in {n[1]["node"] for n in top_nodes}:
-                            neighbor_res = collection.get(ids=[neighbor_id], include=["metadatas", "documents"])
-                            if neighbor_res["ids"]:
-                                neighbor_meta = neighbor_res["metadatas"][0]
-                                neighbor_doc = neighbor_res["documents"][0] or ""
-                                top_nodes.append((score - 1, {
-                                    "node": neighbor_id,
-                                    "metadata": neighbor_meta,
-                                    "code": neighbor_doc
-                                }))
+                    neighbors_to_fetch = [nid for nid in related_entities[:max_neighbors] if nid not in seen_nodes]
+
+                    if not neighbors_to_fetch:
+                        continue
+
+                    neighbors = collection.get(ids=neighbors_to_fetch, include=["metadatas", "documents"])
+                    for j in range(len(neighbors["ids"])):
+                        neighbor_id = neighbors["ids"][j]
+                        if neighbor_id in seen_nodes:
+                            continue
+                        neighbor_metadata = neighbors["metadatas"][j]
+                        neighbor_kind = neighbor_metadata.get("kind", "")
+                        neighbor_doc = neighbors["documents"][j] or ""
+
+                        # pomijamy sasiadow metody i zmienne, ktorych kod juz nalezy do klasy rodzica
+                        if metadata.get("kind") == "CLASS" and (
+                                neighbor_kind == "METHOD" or neighbor_kind == "VARIABLE") and str(
+                                neighbor_id).startswith(f"{node_id}."):
+                            continue
+
+                        top_nodes.append((score - 1, {
+                            "node": neighbor_id,
+                            "metadata": neighbor_metadata,
+                            "code": neighbor_doc
+                        }))
+                        seen_nodes.add(neighbor_id)
+
 
     final_top_nodes = top_nodes.copy()
     for score, node_data in top_nodes:
@@ -490,11 +508,14 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
             class_name = node_data["metadata"].get("label")
             usage_nodes = find_usage_nodes(collection, class_name, max_results=max_usage_nodes_for_context)
             for u_score, u_node_id, u_doc, u_metadata in usage_nodes:
+                if u_node_id in seen_nodes:
+                    continue
                 final_top_nodes.append((u_score - 1, {
                     "node": u_node_id,
                     "metadata": u_metadata,
                     "code": u_doc
                 }))
+                seen_nodes.add(u_node_id)
 
     top_nodes = sorted(final_top_nodes, key=lambda x: x[0], reverse=True)[:top_k]
     print(f"TOP NODES from general_question: {[n[1]['node'] for n in top_nodes]}")
