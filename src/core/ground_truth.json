@@ -1,0 +1,166 @@
+{
+    "test_suite": "RAG System - Webinar Project",
+    "version": "2.0",
+    "created": "2025-11-12",
+    "description": "Test suite with actual code fragments in ground_truth_contexts",
+    "questions": [
+      {
+    "id": "Q001",
+    "question": "Describe Category class",
+    "category": "definition",
+    "correct_answer": "Category is a JPA entity class that represents webinar categories. It has three fields: categoryId (auto-generated ID), name (String), and webinars (Set of Webinar objects in a many-to-many relationship). The class has constructors and standard getters/setters.",
+    "ground_truth_contexts": [
+        "@Entity public class Category { @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private int categoryId; private String name; @ManyToMany(mappedBy = \"categories\") private Set<Webinar> webinars = new HashSet<>();",
+        "public Category(String name) { this.name = name; } public Category() { } public int getCategoryId() { return categoryId; } public String getName() { return name; }"
+    ],
+    "key_facts": [
+        "Category is a JPA entity",
+        "Has categoryId, name, and webinars fields",
+        "categoryId is auto-generated",
+        "Has many-to-many relationship with Webinar",
+        "Has constructors and getters/setters"
+    ],
+    "key_entities": [
+        "Category",
+        "categoryId",
+        "name",
+        "webinars"
+    ]
+},
+        {
+    "id": "Q002",
+    "question": "How does method enrollStudentIntoWebinar work?",
+    "category": "implementation",
+    "correct_answer": "The method retrieves webinar and user from repositories, validates that the user is not already enrolled, checks that the user is not the lecturer, verifies there are no overlapping webinars, then enrolls the student and saves both entities.",
+    "ground_truth_contexts": [
+        "Webinar webinar = webinarRepository.findById(webinarId).orElseThrow(() -> new WebinarNotFoundException(webinarId)); User user = userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException(userId));",
+        "if (webinar.getStudents().contains(user) || user.getWebinars().contains(webinar)) { throw new UserAlreadyEnrolledException(userId, webinarId); }",
+        "if (user.getEmail().equalsIgnoreCase(webinar.getLecturer().getEmail())) { throw new LecturerCantEnrollIntoOwnWebinar(); }",
+        "Set<Webinar> overlappingWebinars = overlappingWebinarsForUser(user, webinar); if (!overlappingWebinars.isEmpty()) { throw new WebinarOverlappingException(userId, webinarId, overlappingWebinarsDetails); }",
+        "webinar.enrollStudent(user); webinarRepository.save(webinar); userRepository.save(user); return convertToDto(webinar);"
+    ],
+    "key_facts": [
+        "Takes webinarId and userId as parameters",
+        "Validates webinar and user exist",
+        "Checks for duplicate enrollment",
+        "Checks lecturer restriction",
+        "Checks for overlapping webinars",
+        "Enrolls and saves if validations pass"
+    ],
+    "key_entities": [
+        "enrollStudentIntoWebinar",
+        "webinarRepository",
+        "userRepository",
+        "LecturerCantEnrollIntoOwnWebinar",
+        "overlappingWebinarsForUser",
+        "WebinarOverlappingException",
+        "enrollStudent"
+    ]
+},
+        {
+            "id": "Q003",
+            "question": "What exceptions can method enrollStudentIntoWebinar throw?",
+            "category": "exception",
+            "correct_answer": "The method can throw five exceptions: WebinarNotFoundException, UserNotFoundException, UserAlreadyEnrolledException, LecturerCantEnrollIntoOwnWebinar, and WebinarOverlappingException.",
+            "ground_truth_contexts": [
+                "throw new WebinarNotFoundException(webinarId)",
+                "throw new UserNotFoundException(userId)",
+                "throw new UserAlreadyEnrolledException(userId, webinarId)",
+                "throw new LecturerCantEnrollIntoOwnWebinar()",
+                "throw new WebinarOverlappingException(userId, webinarId, overlappingWebinarsDetails)"
+            ],
+            "key_facts": [
+                "Throws WebinarNotFoundException when webinar not found",
+                "Throws UserNotFoundException when user not found",
+                "Throws UserAlreadyEnrolledException for duplicate enrollment",
+                "Throws LecturerCantEnrollIntoOwnWebinar when user is lecturer",
+                "Throws WebinarOverlappingException for schedule conflicts"
+            ],
+            "key_entities": [
+                "WebinarNotFoundException",
+                "UserNotFoundException",
+                "UserAlreadyEnrolledException",
+                "LecturerCantEnrollIntoOwnWebinar",
+                "WebinarOverlappingException"
+            ]
+        },
+
+        {
+    "id": "Q004",
+    "question": "What tests exist for ClassroomController?",
+    "category": "testing",
+    "correct_answer": "ClassroomControllerTest contains six test methods covering CRUD operations: shouldReturnAllClassrooms, shouldReturnClassroomById, shouldReturnClassroomsByAddress, shouldCreateClassroom, shouldUpdateClassroom, and shouldDeleteClassroom.",
+    "ground_truth_contexts": [
+        "@Test void shouldReturnAllClassrooms()",
+        "@Test void shouldReturnClassroomById()",
+        "@Test void shouldReturnClassroomsByAddress()",
+        "@Test void shouldCreateClassroom()",
+        "@Test void shouldUpdateClassroom()",
+        "@Test void shouldDeleteClassroom()"
+    ],
+    "key_facts": [
+        "Contains six test methods",
+        "Tests all CRUD operations",
+        "Uses MockMvc for HTTP requests",
+        "Tests GET, POST, PUT, DELETE endpoints"
+    ],
+    "key_entities": [
+        "ClassroomControllerTest",
+        "shouldReturnAllClassrooms",
+        "shouldReturnClassroomById",
+        "shouldReturnClassroomsByAddress",
+        "shouldCreateClassroom",
+        "shouldUpdateClassroom",
+        "shouldDeleteClassroom"
+    ]
+},
+        {
+            "id": "Q005",
+            "question": "Where is method updateWebinar used?",
+            "category": "usage",
+            "correct_answer": "The updateWebinar method is used in WebinarController in a PUT endpoint mapped to /webinars/{id}. The controller calls webinarService.updateWebinar and returns the updated webinar.",
+            "ground_truth_contexts": [
+                "@PutMapping(\"/{id}\") public ResponseEntity<WebinarDto> updateWebinar(@PathVariable int id, @RequestBody WebinarDto webinarDto) { WebinarDto updatedWebinar = webinarService.updateWebinar(id, webinarDto);",
+                "@Test void testUpdateWebinar() { WebinarDto result = webinarService.updateWebinar(webinarId, updatedWebinarDto);"
+            ],
+            "key_facts": [
+                "Used in WebinarController",
+                "Mapped to PUT /webinars/{id}",
+                "Calls webinarService.updateWebinar",
+                "Has test methods in WebinarServiceTest"
+            ],
+            "key_entities": [
+                "updateWebinar",
+                "WebinarController",
+                "webinarService"
+            ]
+        },
+        {
+    "id": "Q006",
+    "question": "What are the most important classes in the project?",
+    "category": "top",
+    "correct_answer": "The most important classes are WebinarService (core business logic), WebinarController (REST API), and Webinar (central domain entity).",
+    "ground_truth_contexts": [
+        "public class WebinarService",
+        "public class WebinarController",
+        "@Entity public class Webinar"
+    ],
+    "key_facts": [
+        "WebinarService contains core business logic",
+        "WebinarController handles REST endpoints",
+        "Webinar is central domain entity"
+    ],
+    "key_entities": [
+        "WebinarService",
+        "WebinarController",
+        "Webinar"
+    ]
+}
+    ],
+    "evaluation_criteria": {
+        "answer_completeness": "Answer should mention main components visible in code",
+        "factual_accuracy": "Answer must match source documents - names must be correct",
+        "realistic_expectations": "Answer should be what a human would provide after code review",
+        "context_matching": "Ground truth contexts must contain actual code fragments that RAG can retrieve"
+    }
+}

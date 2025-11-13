@@ -6,6 +6,19 @@ from typing import Dict, Any
 
 # Konwerter pliku z rozszerzeniem .gdf (pliku grafu)
 def load_gdf(filepath: str) -> nx.DiGraph:
+    """
+        Loads a directed graph from a `.gdf` file.
+
+        Parses node and edge definitions to build a NetworkX directed graph,
+        preserving attributes defined in the file.
+
+        Args:
+            filepath (str): Path to the `.gdf` graph file.
+
+        Returns:
+            nx.DiGraph: Directed graph containing all nodes and edges
+            with associated attributes.
+    """
     G = nx.DiGraph()
 
     with open(filepath, 'r', encoding='utf-8') as f:
@@ -52,6 +65,18 @@ def load_gdf(filepath: str) -> nx.DiGraph:
 
 
 def load_crucial_from_js(js_path: str) -> Dict[str, Any]:
+    """
+        Parses and loads JSON-like data from a `.js` file created by `scg-cli`.
+
+        Extracts the JSON object assigned to a variable (e.g., `const crucial = {...};`)
+        and converts it into a Python dictionary.
+
+        Args:
+            js_path (str): Path to the JavaScript file containing JSON data.
+
+        Returns:
+            Dict[str, Any]: Parsed JSON data as a Python dictionary.
+    """
     with open(js_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
@@ -68,6 +93,19 @@ def load_crucial_from_js(js_path: str) -> Dict[str, Any]:
 # (zrobione poleceniem: scg-cli crucial <Sciezka>)
 # scg-cli robi plik partiton.js zamiast crucial.js - trzeba zmienić w tamtym kodzie
 def extract_scores(js_path: str) -> Dict[str, Dict[str, float]]:
+    """
+        Extracts node importance scores from a parsed `crucial.js` or `partition.js` file.
+
+        Reads statistical metrics (e.g., PageRank, eigenvector, Katz) for all nodes
+        and returns a nested dictionary mapping metric names to node-score pairs.
+
+        Args:
+            js_path (str): Path to the JavaScript file containing metric data.
+
+        Returns:
+            Dict[str, Dict[str, float]]: A dictionary where keys are metric IDs and
+            values are dictionaries of node IDs with their associated scores.
+    """
     data = load_crucial_from_js(js_path)
     scores = {}
 

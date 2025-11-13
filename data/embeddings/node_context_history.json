@@ -1,0 +1,52 @@
+[
+    {
+        "role": "user",
+        "content": "What tests exist for ClassroomController?",
+        "timestamp": 1763011899.995788
+    },
+    {
+        "role": "assistant",
+        "content": "Here are the test classes and methods present in the code that relate to `ClassroomController`:\n\n1. Test class: `ProjApplicationTests`\n2. Test method:\n   - `shouldDeleteClassroom()`: Tests the deletion of a classroom.\n   - `shouldUpdateClassroom()`: Tests updating a classroom.\n\nThese tests use MockMvc to perform HTTP requests and verify the responses, including status codes and JSON path assertions.",
+        "timestamp": 1763011899.995789
+    },
+    {
+        "role": "user",
+        "content": "What tests exist for ClassroomController?",
+        "timestamp": 1763011899.99579
+    },
+    {
+        "role": "assistant",
+        "content": "Here are the test methods that exist for `ClassroomController`:\n\n1. `shouldDeleteClassroom()`: Tests deleting a classroom by sending a DELETE request to `/classrooms/1`. The assertion is `andExpect(status().isNoContent());`.\n2. `shouldUpdateClassroom()`: Tests updating a classroom by sending a PUT request to `/classrooms/1` with an updated `ClassroomDto` object. The assertions are:\n\t* `andExpect(status().isOk())`\n\t* `andExpect(jsonPath(\"$.classroomId\").value(1))`\n\t* `andExpect(jsonPath(\"$.address.city\").value(\"Kraków\"))`\n\t* `andExpect(jsonPath(\"$.address.street\").value(\"Warszawska\"))`\n\t* `andExpect(jsonPath(\"$.address.number\").value(\"21\"))`\n\t* `andExpect(jsonPath(\"$.roomNumber\").value(\"101\"))`\n\t* `andExpect(jsonPath(\"$.capacity\").value(35))`\n\nNote that the `shouldUpdateClassroom()` method is not explicitly annotated with `@Test` in the provided code, but it appears to be a test method based on its name and content.",
+        "timestamp": 1763011899.995792
+    },
+    {
+        "role": "user",
+        "content": "Where is method updateWebinar used?",
+        "timestamp": 1763011899.9957929
+    },
+    {
+        "role": "assistant",
+        "content": "The `updateWebinar` method is used in the following places:\n\n* In the `WebinarController` class, at the line where it says `@PutMapping(\"/{id}\") public ResponseEntity<WebinarDto> updateWebinar(@PathVariable int id, @RequestBody WebinarDto webinarDto) { ... }`\n* In the `WebinarServiceTest` class, in the test method `testUpdateWebinar()`, where it calls `webinarService.updateWebinar(webinarId, updatedWebinarDto);`\n\nThe exact line numbers are not provided, but these are the places where the `updateWebinar` method is used.",
+        "timestamp": 1763011899.9957938
+    },
+    {
+        "role": "user",
+        "content": "What are the most important classes in the project?",
+        "timestamp": 1763011899.995795
+    },
+    {
+        "role": "assistant",
+        "content": "1. WebinarService\n2. WebinarServiceTest\n3. Webinar\n4. WebinarControllerTest\n5. User\n6. ClassroomControllerTest\n7. SecurityConfig\n8. WebinarController\n9. ClassroomService\n10. LoginController\n11. CategoryControllerTest\n12. UserService\n13. Classroom\n14. CategoryService\n15. DataInitializer\n16. Address\n17. Category\n18. CategoryController\n19. ClassroomController\n20. UserController\n21. LoginResponse\n22. App1ConfigurationAdapter\n23. App2ConfigurationAdapter\n24. LoginRequest\n25. DurationConverter\n26. App3ConfigurationAdapter\n27. UserNotFoundException\n28. CategoryNotFoundException\n29. ClassroomNotFoundException\n30. ProjApplicationTests\n31. InvalidSortByParamException\n32. UserNotEnrolledException\n33. LecturerCantEnrollIntoOwnWebinar\n34. WebinarNotFoundException\n35. ClassroomInUseException\n36. CategoryInUseException\n37. CategoryAlreadyExistsException\n38. UserAlreadyEnrolledException\n39. WebinarOverlappingException\n40. ClassroomAlreadyExsistsException\n41. ProjApplication",
+        "timestamp": 1763011899.995796
+    },
+    {
+        "role": "user",
+        "content": "What are the most important classes in the project?",
+        "timestamp": 1763011903.082104
+    },
+    {
+        "role": "assistant",
+        "content": "1. WebinarService\n2. Webinar\n3. WebinarController\n4. User\n5. ClassroomService\n6. SecurityConfig \n\nImportant: Core business logic and controllers classes.",
+        "timestamp": 1763011903.082253
+    }
+]

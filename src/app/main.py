@@ -10,11 +10,15 @@ from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError, BaseModel
 
-from graph.similar_node_optimization import similar_node_fast
-from intent_analyzer import get_intent_analyzer
-from metrics import metrics_logger
-from models import PrompRequest, SimpleRAGResponse, NodeRAGResponse, PerformanceMetrics, ConversationHistory
-from prompt import build_intent_aware_prompt, post_process_answer
+from src.graph.similar_node_optimization import similar_node_fast
+from src.core.intent_analyzer import get_intent_analyzer
+
+from src.core.models import PrompRequest, SimpleRAGResponse, NodeRAGResponse, PerformanceMetrics, ConversationHistory
+from src.core.prompt import build_prompt, post_process_answer
+from src.core.config import MODEL_NAME, OLLAMA_API_URL, NODE_CONTEXT_HISTORY, CODEBERT_MODEL_NAME, projects, ground_truth, metrics_path
+
+
+from src.core.evaluator import RAGEvaluator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,67 +32,140 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-OLLAMA_API_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "llama3.1:8b"
-NODE_EMBEDDINGS = "embeddings/node_embedding.json"
-NODE_CONTEXT_HISTORY = "embeddings/node_context_history.json"
 HISTORY_LIMIT = 5
-CODEBERT_MODEL_NAME = "microsoft/codebert-base"
-BASE_DIR = os.path.abspath("projects")
+BASE_DIR = os.path.abspath(projects)
 
 timeout: httpx.Timeout = httpx.Timeout(200.0)
 client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
 conversation_history: ConversationHistory = ConversationHistory(max_history_pairs=HISTORY_LIMIT)
 
+evaluator: RAGEvaluator = None
+
 
 def warm_up_models() -> None:
+    """
+        Preloads key models to reduce startup latency.
+        Logs progress, total warm-up time, and any errors encountered.
+        Does not raise exceptions.
+    """
     logger.info("Warming up models...")
     start_time = time.time()
-
     try:
-        from graph.similar_node_optimization import get_graph_model
-        from rag_optimization import _get_cached_model
-
+        from src.graph.similar_node_optimization import get_graph_model
+        from src.core.rag_optimization import _get_cached_model
         get_graph_model()
         logger.info("Graph model zaladowany")
-
         _get_cached_model()
         logger.info("CodeBERT model zaladowany")
-
         warum_time = time.time() - start_time
         logger.info(f"RAG models zaladowane w {warum_time:.2f}s")
-
     except Exception as e:
         logger.error(f"Model warmup failed: {e}")
 
 
-def log_performance_metrics(metrics: PerformanceMetrics) -> None:
+def load_evaluator() -> None:
+    """
+        Loads the RAG evaluator if the ground truth file exists.
+
+        Initializes a global `evaluator` using RAGEvaluator with LLM judging.
+        Logs success or failure; sets `evaluator` to None on error or missing file.
+    """
+    global evaluator
+    ground_truth_path = ground_truth
+    if os.path.exists(ground_truth_path):
+        try:
+            evaluator = RAGEvaluator(test_suite_path=ground_truth_path,use_llm_judge=True)
+        except Exception as e:
+            logger.error(f"Failed to load evaluator: {e}")
+            evaluator = None
+    else:
+        logger.info(f"Ground truth file not found at {ground_truth_path}")
+        evaluator = None
+
+
+def log_metrics(metrics: PerformanceMetrics) -> None:
+    """
+        Logs performance metrics for a single endpoint call.
+        Includes total, RAG, and LLM times, as well as context and response lengths.
+    """
     logger.info(
         f"Performance [{metrics.endpoint}]: "
         f"total={metrics.total_time:.3f}s, "
         f"rag={metrics.rag_time:.3f}s, "
         f"llm={metrics.llm_time:.3f}s, "
         f"context_len={metrics.context_length}, "
-        f"response_len={metrics.response_length}"
-    )
+        f"response_len={metrics.response_length}")
 
 
-async def log_metrics_async(question: str, answer: str, context: str, processing_time: float, model_name: str = None, additional_data: Dict = None):
-    loop = asyncio.get_event_loop()
 
-    await loop.run_in_executor(
-        None,
-        metrics_logger.log_metrics,
-        question,
-        answer,
-        context,
-        processing_time,
-        model_name,
-        additional_data
-    )
+
+async def evaluate_if_needed(question: str, answer: str, context: str) -> Dict:
+    """
+        Evaluates a model's answer against ground truth if available.
+        Finds the matching question in the evaluator's test suite and computes
+        comprehensive RAG metrics (RAGAS, context recall, faithfulness).
+        Logs results and returns evaluation data or None on failure.
+
+        Args:
+            question (str): The user or test question to evaluate.
+            answer (str): The model-generated answer.
+            context (str): Retrieved context(s).
+
+        Returns:
+            Dict | None: A dictionary containing question ID, category, and
+            computed metrics, or None if evaluation is skipped or fails.
+    """
+    if evaluator is None:
+        return None
+    matching_question = None
+    for test_question in evaluator.test_suite.questions:
+        if test_question.question.lower().strip() == question.lower().strip():
+            matching_question = test_question
+            break
+    if matching_question is None:
+        logger.debug(f"Question not found in ground truth")
+        return None
+    retrieved_contexts = []
+    for ctx in context.split('##'):
+        ctx = ctx.strip()
+        if ctx:
+            retrieved_contexts.append(ctx)
+    try:
+        metrics_report = evaluator.rag_metrics.full_evaluation(
+            question=question,
+            answer=answer,
+            retrieved_contexts=retrieved_contexts,
+            ground_truth_answer=matching_question.correct_answer,
+            ground_truth_contexts=matching_question.ground_truth_contexts,
+            key_entities=matching_question.key_entities,
+            key_facts=matching_question.key_facts)
+        return {
+            "question_id": matching_question.id,
+            "category": matching_question.category,
+            "metrics": metrics_report}
+    except Exception as e:
+        logger.error(f"Evaluation failed for question {matching_question.id}: {e}")
+        logger.exception(e)
+        return None
 
 
 async def get_llm_response(prompt: str) -> str:
+    """
+        Sends a prompt to the Ollama API and returns the model's response.
+
+        Builds and sends a JSON payload with model parameters, validates the response,
+        and handles HTTP and request-related errors gracefully.
+
+        Args:
+            prompt (str): The input text prompt to send to the language model.
+
+        Returns:
+            str: The generated text response from the model.
+
+        Raises:
+            HTTPException: If the Ollama API returns an error, invalid format,
+                or an empty response.
+    """
     payload = {
         "model": MODEL_NAME,
         "prompt": prompt,
@@ -138,6 +215,21 @@ async def get_llm_response(prompt: str) -> str:
 
 @app.post("/ask", response_model=SimpleRAGResponse)
 async def ask(req: PrompRequest) -> SimpleRAGResponse:
+    """
+        Handles the `/ask` endpoint that sends a question and context to the LLM.
+
+        Builds a prompt from the request, queries the model, measures response times,
+        logs performance metrics, and returns the generated answer.
+
+        Args:
+            req (PrompRequest): Request object containing the `question` and `context`.
+
+        Returns:
+            SimpleRAGResponse: The model-generated answer and total processing time.
+
+        Raises:
+            HTTPException: If validation fails or an unexpected error occurs.
+    """
     start_time = time.time()
     try:
         prompt = f"Context: {req.context}\n\nQuestion: {req.question}\nAnswer:"
@@ -156,7 +248,7 @@ async def ask(req: PrompRequest) -> SimpleRAGResponse:
             context_length=len(req.context),
             response_length=len(answer)
         )
-        log_performance_metrics(metrics)
+        log_metrics(metrics)
         return response
     except ValidationError as e:
         logger.error(f"Validation error in /ask: {e}")
@@ -173,6 +265,21 @@ async def ask(req: PrompRequest) -> SimpleRAGResponse:
 
 
 async def load_code(file_path: str) -> str:
+    """
+        Loads and returns the content of a code file.
+
+        Checks if the file exists and is non-empty before returning its contents.
+        Logs and raises appropriate HTTP exceptions on failure.
+
+        Args:
+            file_path (str): Path to the file to be read.
+
+        Returns:
+            str: The text content of the specified file.
+
+        Raises:
+            HTTPException: If the file is not found, empty, or cannot be read.
+    """
     if not os.path.exists(file_path):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -197,6 +304,22 @@ async def load_code(file_path: str) -> str:
 
 @app.post("/ask_code", response_model=SimpleRAGResponse)
 async def ask_code(file_path: str, question: str) -> SimpleRAGResponse:
+    """
+        Handles the `/ask_code` endpoint that queries the LLM about a code file.
+
+        Loads the code from the given file, constructs a prompt with the provided
+        question, sends it to the model via the `/ask` endpoint, and returns the response.
+
+        Args:
+            file_path (str): Path to the source code file to analyze.
+            question (str): The question to ask about the code.
+
+        Returns:
+            SimpleRAGResponse: The model-generated answer and total processing time.
+
+        Raises:
+            HTTPException: Propagates any exceptions from file loading or model interaction.
+    """
     start_time = time.time()
     try:
         code = await load_code(file_path)
@@ -211,6 +334,25 @@ async def ask_code(file_path: str, question: str) -> SimpleRAGResponse:
 
 @app.post("/ask_rag_node", response_model=NodeRAGResponse)
 async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
+    """
+        Handles the `/ask_rag_node` endpoint for intent-aware RAG queries on code nodes.
+
+        Performs user intent classification, retrieves semantically similar nodes,
+        builds a context-aware prompt, queries the LLM, post-processes the response,
+        and evaluates results against ground truth when available.
+        Also manages conversation history persistence and logs detailed performance metrics.
+
+        Args:
+            req (PrompRequest): Request object containing the user's question and optional context.
+
+        Returns:
+            NodeRAGResponse: The model's processed answer, used context, total processing time,
+            and detected question category.
+
+        Raises:
+            HTTPException: If any step in the RAG or LLM pipeline fails (e.g., intent analysis,
+            model call, history load/save, or evaluation).
+    """
     total_start_time = time.time()
     try:
         analyzer = get_intent_analyzer()
@@ -222,7 +364,6 @@ async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
             "requires_examples": user_intent_analysis.requires_examples,
             "requires_usage_info": user_intent_analysis.requires_usage_info,
             "requires_implementation_details": user_intent_analysis.requires_implementation_details,
-            "user_expertise_level": user_intent_analysis.user_expertise_level.value
         }
         intent_time = time.time() - intent_start_time
         logger.info(f"User intent analysis: {intent_time:.3f}s - {user_intent}")
@@ -248,7 +389,7 @@ async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
         logger.info(f"History loaded: {history_load_time:.3f}s, {len(conversation_history.messages)} messages")
 
         prompt_start_time = time.time()
-        prompt = build_intent_aware_prompt(
+        prompt = build_prompt(
             question=req.question,
             context=context,
             intent=user_intent,
@@ -271,7 +412,23 @@ async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
             logger.debug(answer)
 
         processed_answer = post_process_answer(answer, user_intent)
-
+        # evaluation_result = await evaluate_if_needed(req.question, processed_answer, context)
+        # if evaluation_result:
+        #     try:
+        #         eval_log_path = metrics_path
+        #         os.makedirs(os.path.dirname(eval_log_path), exist_ok=True)
+        #         with open(eval_log_path, 'a', encoding='utf-8') as f:
+        #             eval_entry = {
+        #                 "timestamp": time.time(),
+        #                 "question": req.question,
+        #                 "answer": processed_answer,
+        #                 "question_id": evaluation_result["question_id"],
+        #                 "category": evaluation_result["category"],
+        #                 "ragas_score": evaluation_result["metrics"]["ragas"]["ragas_score"],
+        #                 "full_metrics": evaluation_result["metrics"]}
+        #             f.write(json.dumps(eval_entry, ensure_ascii=False, indent=2) + '\n\n')
+        #     except Exception as e:
+        #         logger.warning(f"Failed to save evaluation result: {e}")
         history_save_start_time = time.time()
         conversation_history.add_message("user", req.question)
         conversation_history.add_message("assistant", processed_answer)
@@ -292,30 +449,6 @@ async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
         logger.info(f"History saved: {history_save_time:.3f}s")
         total_time = time.time() - total_start_time
 
-        try:
-            asyncio.create_task(
-                log_metrics_async(
-                    question=req.question,
-                    answer=processed_answer,
-                    context=context,
-                    processing_time=total_time,
-                    model_name=MODEL_NAME,
-                    additional_data={
-                        "question_category": user_intent_analysis.primary_intent.value,
-                        "intent_confidence": user_intent_analysis.confidence,
-                        "context_chars": len(context),
-                        "answer_chars": len(processed_answer),
-                        "rag_time": rag_time,
-                        "llm_time": llm_time,
-                        "matches_found": len(matches)
-                    }
-                )
-            )
-            logger.info("metrics logging started")
-            logger.info("metrics logged successfully")
-        except Exception as e:
-            logger.warning(f"Failed to log metrics: {e}")
-
         response = NodeRAGResponse(
             answer=processed_answer,
             used_context=context,
@@ -333,7 +466,7 @@ async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
             context_length=len(context),
             response_length=len(processed_answer)
         )
-        log_performance_metrics(metrics)
+        log_metrics(metrics)
         return response
 
     except Exception as exc:
@@ -345,10 +478,24 @@ async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
 
 
 class AskRequest(BaseModel):
+    """
+        Request model for basic question queries.
+
+        Attributes:
+            question (str): The user's input question.
+    """
     question: str
 
 
 class AskResponse(BaseModel):
+    """
+        Response model for basic RAG question results.
+
+        Attributes:
+            status (str): Request status, defaults to "success".
+            context (str): Retrieved or generated context relevant to the question.
+            matches (int): Number of context matches found, defaults to 0.
+    """
     status: str = "success"
     context: str
     matches: int = 0
@@ -356,6 +503,21 @@ class AskResponse(BaseModel):
 
 @app.post("/ask_junie")
 async def ask_junie(req: AskRequest):
+    """
+        Handles the `/ask_junie` endpoint for quick RAG-style context retrieval.
+
+        Uses a similarity model to find nodes relevant to the given question,
+        returning the matched context and number of matches.
+
+        Args:
+            req (AskRequest): Request containing the user's question.
+
+        Returns:
+            dict: A dictionary with the fields:
+                - status (str): "success" or "error"
+                - context (str): Retrieved context or error message
+                - matches (int): Number of matching nodes found
+        """
     logger.info(f"Received question: {req.question}")
 
     try:
@@ -382,6 +544,21 @@ async def ask_junie(req: AskRequest):
 
 @app.get("/files", response_model=List[str])
 def list_files(path: str = "") -> List[str]:
+    """
+        Handles the `/files` endpoint that lists files in a given directory.
+
+        Validates the requested path to prevent directory traversal, checks access
+        permissions, and returns a sorted list of file and folder names.
+
+        Args:
+            path (str): Optional subdirectory path relative to BASE_DIR. Defaults to "".
+
+        Returns:
+            List[str]: Alphabetically sorted list of files and directories.
+
+        Raises:
+            HTTPException: If the path is outside BASE_DIR, inaccessible, or not found.
+    """
     target_dir = os.path.abspath(os.path.join(BASE_DIR, path))
     if not target_dir.startswith(BASE_DIR):
         raise HTTPException(
@@ -405,6 +582,26 @@ def list_files(path: str = "") -> List[str]:
 
 @app.get("/file")
 def get_file(path: str = Query(..., description="Relative path to the file")) -> dict:
+    """
+        Handles the `/file` endpoint that retrieves the content of a text file.
+
+        Validates and reads a file relative to BASE_DIR, ensuring secure access.
+        Returns file content along with metadata such as path, size, and timestamp.
+
+        Args:
+            path (str): Relative path to the requested file within BASE_DIR.
+
+        Returns:
+            dict: File metadata and content, including:
+                - content (str): The text content of the file.
+                - file_path (str): Relative file path.
+                - size (int): Number of characters in the file.
+                - timestamp (float): Current UNIX timestamp.
+
+        Raises:
+            HTTPException: If access is denied, the file does not exist,
+                cannot be read, or is not a valid text file.
+    """
     file_path = os.path.abspath(os.path.join(BASE_DIR, path))
     if not file_path.startswith(BASE_DIR):
         raise HTTPException(
@@ -440,8 +637,19 @@ def get_file(path: str = Query(..., description="Relative path to the file")) ->
 
 @app.on_event("startup")
 async def startup_event():
+    """
+        Application startup event handler.
+
+        Initializes models, evaluator, and verifies the Ollama server connection.
+        Keeps the selected model in memory and performs a warm-up request to
+        reduce first-call latency.
+
+        Logs the status of each initialization step and reports any failures.
+    """
     logger.info("Starting RAG application...")
     warm_up_models()
+
+    load_evaluator()
 
     try:
         logger.info("Checking Ollama server connection...")
@@ -464,6 +672,7 @@ async def startup_event():
         logger.info(f"Model {MODEL_NAME} configured to stay in memory permanently")
     except Exception as e:
         logger.warning(f"Failed to configure model persistence: {e}")
+
     try:
         start_time = time.time()
         warmup_payload = {
@@ -487,6 +696,11 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown():
+    """
+        Application shutdown event handler.
+
+        Closes the shared HTTP client and logs shutdown completion.
+    """
     logger.info("Shutting down RAG application...")
     await client.aclose()
     logger.info("HTTP client closed")

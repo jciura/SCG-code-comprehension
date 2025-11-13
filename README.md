@@ -42,12 +42,24 @@
    - **rag_optimization.py** – udostępnia model CodeBERT,  
    - **ChromaDB** – znajduje podobne węzły kodu,  
    - **context.py** – filtrowanie kontekstu na podstawie kategorii pytania
-4. **prompts.py** – budowanie prompta (`build_intent_aware_prompt`) z uwzględnieniem kategorii i historii konwersacji.
+4. **prompts.py** – budowanie prompta (`build_prompt`) z uwzględnieniem kategorii i historii konwersacji.
 5. **models.py** – walidacja danych i zarządzanie historią konwersacji.  
 6. **main.py** – wysyła kontekst + pytanie do Ollama API.  
 7. **prompts.py** – post-processing odpowiedzi.
 8. **main.py** – zwraca odpowiedź użytkownikowi.
 
+
+## Architektura systemu
+Poniżej przedstawiono główne komponenty aplikacji:
+
+![Architektura systemu](diagrams/architektura.png)
+
+---
+
+## Sekwencja zapytania `/ask_rag_node`
+Schemat przepływu danych i zapytań:
+
+![Sekwencja zapytania](diagrams/ask_rag_node.png)
 ### Junie
 
 1. W ustawieniach Tools>Junie>MCP Settings dodać coś takiego

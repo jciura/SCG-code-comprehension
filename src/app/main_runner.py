@@ -1,28 +1,45 @@
 import json
-import os
 from collections import defaultdict
-from chroma_client import get_chroma_client, get_or_create_collection
-from graph.load_graph import load_gdf, extract_scores
-from graph.generate_embeddings_graph import generate_embeddings_graph, node_to_text
-from graph.question_embedding import generate_and_save_classifier_embeddings
-
+from src.clients.chroma_client import get_or_create_collection
+from src.graph.load_graph import load_gdf, extract_scores
+from src.graph.generate_embeddings_graph import generate_embeddings_graph, node_to_text
+from src.core.config import CODEBERT_MODEL_NAME, default_chroma_path, default_collection_name, partition, test_gdf, scg_test, ccn_test
+from loguru import logger
 
 def load_graph_main() -> None:
-    load_gdf("../projects/test.gdf")
-    extract_scores("../projects/partition.js")
+    """
+        Loads and processes the primary test graph data.
 
+        Loads a graph from the configured test GDF file and extracts node importance
+        scores using the specified partition configuration.
 
-def question_embedding_main() -> None:
-    generate_and_save_classifier_embeddings("../embeddings/classifier_example_embeddings.json")
+        Returns:
+            None
+    """
+    load_gdf(test_gdf)
+    extract_scores(partition)
+
 
 
 def generate_embeddings_graph_main() -> None:
-    model_name = "microsoft/codebert-base"
-    scg = load_gdf('../projects/scgTest.gdf')
-    ccn = load_gdf('../projects/ccnTest.gdf')
-    importance_scores = extract_scores("../projects/partition.js")
-    chroma_storage_path = "embeddings/chroma_storage"
-    collection_name = "scg_embeddings"
+    """
+        Generates graph node embeddings and stores them in a Chroma collection.
+
+        Loads SCG and CCN graphs, computes importance scores, builds reverse mappings
+        for node relationships, converts nodes to textual representations, and generates
+        embeddings using the configured CodeBERT model.
+        Each node and its metadata (including structural metrics and related entities)
+        are then stored in the Chroma vector database.
+
+        Returns:
+            None
+
+        Raises:
+            Exception: If embedding generation or data insertion into the Chroma collection fails.
+    """
+    scg = load_gdf(scg_test)
+    ccn = load_gdf(ccn_test)
+    importance_scores = extract_scores(partition)
 
     reverse_ccn_map = defaultdict(list)
     for node_id in ccn.nodes():
@@ -42,10 +59,10 @@ def generate_embeddings_graph_main() -> None:
         })
         texts_for_embedding.append(node_text["text"].lower())
 
-    embeddings = generate_embeddings_graph(texts_for_embedding, model_name)
+    embeddings = generate_embeddings_graph(texts_for_embedding, CODEBERT_MODEL_NAME)
     collection = get_or_create_collection(
-        collection_name=collection_name,
-        storage_path=chroma_storage_path
+        collection_name=default_collection_name,
+        storage_path=default_chroma_path
     )
     json_data = []
 
@@ -95,12 +112,11 @@ def generate_embeddings_graph_main() -> None:
                 documents=[info["code"]]
             )
         except Exception as e:
-            print(f"Failed to add {node_id}: {str(e)}")
+            logger.error(f"Failed to add {node_id}: {str(e)}")
     # with open("../embeddings/node_embedding.json", "w", encoding="utf-8") as f:
     #     json.dump(json_data, f, ensure_ascii=False, indent=2)
 
 
 if __name__ == '__main__':
     load_graph_main()
-    question_embedding_main()
     generate_embeddings_graph_main()
