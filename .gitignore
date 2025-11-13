@@ -5,5 +5,6 @@ __pycache__/
 projects/rich
 *.pyc
 *.sqlite3
-embeddings/chroma_storage/
-embeddings/node_context_history.json
+data/embeddings/chroma_storage/
+data/embeddings/node_context_history.json
+src/logs/metrics_log.jsonl

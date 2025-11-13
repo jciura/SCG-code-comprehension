@@ -42,12 +42,46 @@
    - **rag_optimization.py** – udostępnia model CodeBERT,  
    - **ChromaDB** – znajduje podobne węzły kodu,  
    - **context.py** – filtrowanie kontekstu na podstawie kategorii pytania
-4. **prompts.py** – budowanie prompta (`build_intent_aware_prompt`) z uwzględnieniem kategorii i historii konwersacji.
+4. **prompts.py** – budowanie prompta (`build_prompt`) z uwzględnieniem kategorii i historii konwersacji.
 5. **models.py** – walidacja danych i zarządzanie historią konwersacji.  
 6. **main.py** – wysyła kontekst + pytanie do Ollama API.  
 7. **prompts.py** – post-processing odpowiedzi.
 8. **main.py** – zwraca odpowiedź użytkownikowi.
 
+
+## Architektura systemu
+Poniżej przedstawiono główne komponenty aplikacji:
+
+![Architektura systemu](diagrams/architektura.png)
+
+---
+
+## Sekwencja zapytania `/ask_rag_node`
+Schemat przepływu danych i zapytań:
+
+![Sekwencja zapytania](diagrams/ask_rag_node.png)
+### Junie
+
+1. W ustawieniach Tools>Junie>MCP Settings dodać coś takiego
+   (zmienić command i args na lokalizacje na komputerze):
+
+   {
+   "mcpServers": {
+   "junie-context": {
+   "command": "C:\\Users\\chinc\\PycharmProjects\\inzynierka\\.venv\\Scripts\\python.exe",
+   "args": [
+   "C:\\Users\\chinc\\PycharmProjects\\inzynierka\\mcpserver.py"
+   ],
+   "shell": true,
+   "captureOutput": true
+   }
+   }
+   }
+2. Junie wystartuje program mcpserver.py
+3. Pytanie układa się w sposób: /junie-context ask_junie {Reszta pytania (trzeba mu napisać żeby zapytał serwer mcp)}
+4. Na razie zwraca błąd enkapsulacji danych
+5. Nie wiem czy ma to sens bo robi to co my - przeszukuje cały projekt, ale jak mu damy kontekst to może minimalnie
+   przyśpieszy ale możemy to zrobić bez tego pośrednika
 
 ## Przykłady pytań 
 - Describe Category class

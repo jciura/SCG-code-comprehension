@@ -1,0 +1,21 @@
+default_classifier_embeddings_path = "data/embeddings/classifier_example_embeddings.json"
+default_classifier_model = "sentence-transformers/all-MiniLM-L6-v2"
+default_chroma_path = "data/embeddings/chroma_storage"
+default_collection_name = "scg_embeddings"
+
+OLLAMA_API_URL = "http://localhost:11434/api/generate"
+MODEL_NAME = "llama3.1:8b"
+NODE_EMBEDDINGS = "data/embeddings/node_embedding.json"
+NODE_CONTEXT_HISTORY = "data/embeddings/node_context_history.json"
+CODEBERT_MODEL_NAME = "microsoft/codebert-base"
+METRICS = "src/logs/metrics_log.json"
+JUNIE_URL = "http://127.0.0.1:8000/ask_junie"
+partition ="../projects/partition.js"
+test_gdf = "../projects/test.gdf"
+scg_test= '../projects/scgTest.gdf'
+ccn_test = '../projects/ccnTest.gdf'
+
+projects = "../../projects"
+ground_truth = "src/core/ground_truth.json"
+metrics_path = "src/logs/metrics_log.jsonl"
+embedding_model = "paraphrase-multilingual-MiniLM-L12-v2"

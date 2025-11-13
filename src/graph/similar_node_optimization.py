@@ -2,53 +2,86 @@ import json
 import time
 from functools import lru_cache
 from typing import List, Tuple, Dict, Any, Optional, Set
-from chroma_client import get_collection
-from intent_analyzer import get_intent_analyzer, IntentCategory
-from llm_client import call_llm
+
+from src.clients.chroma_client import get_collection
+from src.core.intent_analyzer import get_intent_analyzer, IntentCategory
+from src.clients.llm_client import call_llm
+from loguru import logger
 
 max_cache_size = 1000
 max_usage_results = 10
 max_top_nodes_for_usage = 7
 max_usage_nodes_for_context = 5
-max_usage_nodes_to_process = 5
 max_public_interfaces = 2
-max_tests = 1
 max_other_usage = 1
-max_definition_nodes = 2
-max_context_preview = 1000
-max_test_preview = 400
-max_usage_preview = 600
-max_definition_preview = 800
 max_code_preview = 50
 debug_results_limit = 5
 max_nodes_limit = 1000
 code_hash_length = 200
-max_fallback_docs = 5
-fallback_nodes_limit = 100
-cache_max_age_seconds = 300
 max_test_usage = 4
 max_describe_nodes = 5
-MAX_NEIGHBORS = {"general": 2, "medium": 1, "specific": 0}
 
 _graph_model = None
 
 
 def get_graph_model() -> bool:
+    """
+        Ensures the graph embedding model is initialized.
+
+        Lazily loads the graph model utilities if not already loaded and logs progress.
+
+        Returns:
+            bool: Always True after ensuring initialization.
+    """
     global _graph_model
     if _graph_model is None:
-        print("Ładuje model grafu")
-        from graph.generate_embeddings_graph import generate_embeddings_graph
-        print("Model grafu jest gotowy")
+        logger.info("Ładuje model grafu")
+        from src.graph.generate_embeddings_graph import generate_embeddings_graph
+        logger.info("Model grafu jest gotowy")
     return True
 
 
 @lru_cache(maxsize=max_cache_size)
 def cached_question_question(question_hash: str) -> str:
-    from intent_analyzer import classify_question
+    """
+        Cached classification of a question.
+
+        Uses a lightweight classifier to map a (hashed) question to a category.
+        Results are memoized via `functools.lru_cache`.
+
+        Args:
+            question_hash (str): Hash or key representing the question to classify.
+
+        Returns:
+            str: Classified category label for the question.
+    """
+    from src.core.intent_analyzer import classify_question
     return classify_question(question_hash)
 
 
 def rerank_results(query: str, nodes: List[Tuple[float, Dict[str, Any]]], analyses: Dict[str, Any]) -> List[Tuple[float, Dict[str, Any]]]:
+    """
+        Reranks retrieved nodes.
+
+        Adjusts base similarity scores based on detected intent/category (e.g., testing,
+        usage, definition, implementation, exception), textual overlap with the query,
+        structural importance metrics (PageRank, in-degree, combined), code length,
+        and simple domain cues (e.g., controller/service/repository).
+
+        Args:
+            query (str): Original user query text.
+            nodes (List[Tuple[float, Dict[str, Any]]]): Retrieved items as (score, node_data),
+                where node_data includes 'node', 'metadata', and 'code'.
+            analyses (Dict[str, Any]): Analysis payload containing at least:
+                - category (str): Detected category name.
+                - confidence (float): Confidence in [0.0, 1.0].
+
+        Returns:
+            List[Tuple[float, Dict[str, Any]]]: Reranked items sorted by adjusted score (desc).
+
+        Notes:
+            - Falls back to GENERAL intent if category is invalid.
+    """
     category = analyses.get("category", "general")
     confidence = analyses.get("confidence", 0.5)
     try:
@@ -78,7 +111,7 @@ def rerank_results(query: str, nodes: List[Tuple[float, Dict[str, Any]]], analys
                     break
 
     if target_class_name:
-        print(f"Testing category, target class: {target_class_name}")
+        logger.debug(f"Testing category, target class: {target_class_name}")
     reranked = []
     for item in nodes:
         if isinstance(item, tuple) and len(item) == 2:
@@ -99,13 +132,13 @@ def rerank_results(query: str, nodes: List[Tuple[float, Dict[str, Any]]], analys
             if target_class_name and target_class_name in node_id.lower():
                 if kind == "METHOD" and "test" in node_id.lower():
                     adjusted_score *= 10.0
-                    print(f"boost for test method: {node_id} - {adjusted_score:.3f}")
+                    logger.debug(f"boost for test method: {node_id} - {adjusted_score:.3f}")
                 elif kind == "CLASS" and "test" in node_id.lower():
                     adjusted_score *= 8.0
-                    print(f"boost for test class: {node_id} - {adjusted_score:.3f}")
+                    logger.debug(f"boost for test class: {node_id} - {adjusted_score:.3f}")
                 elif kind == "METHOD" and any(test_word in label.lower() for test_word in ["should", "test"]):
                     adjusted_score *= 7.0
-                    print(f"test method boost: {node_id} - {adjusted_score:.3f}")
+                    logger.debug(f"test method boost: {node_id} - {adjusted_score:.3f}")
 
             if "test" in node_id.lower():
                 if kind == "METHOD":
@@ -212,17 +245,39 @@ def rerank_results(query: str, nodes: List[Tuple[float, Dict[str, Any]]], analys
     reranked.sort(key=lambda x: x[0], reverse=True)
 
     if intent_category == IntentCategory.TESTING:
-        print(f"\nTop 10 reranked results for testing:")
+        logger.debug(f"\nTop 10 reranked results for testing:")
         for i, (score, node_data) in enumerate(reranked[:10]):
             node_id = node_data.get("node", "")
             kind = node_data.get("metadata", {}).get("kind", "")
-            print(f"{i + 1}. {node_id} ({kind}) - Score: {score:.3f}")
+            logger.debug(f"{i + 1}. {node_id} ({kind}) - Score: {score:.3f}")
 
     return reranked
 
 
 def find_usage_nodes(collection: Any, target_class_name: str, max_results: int = max_usage_results) -> List[Tuple[float, str, str, Dict[str, Any]]]:
-    print(f"Szukam węzłów, które używają: {target_class_name}")
+    """
+        Finds code nodes that use a given class/service (e.g., calls, endpoints, tests).
+
+        Scans a Chroma collection for documents mentioning `target_class_name` and detect
+        method/service calls, deduplicate similar snippets, and keep a
+        balanced mix (controllers, services, tests, others).
+
+        Args:
+            collection (Any): Chroma collection handle with `get()` & `query()`-like API.
+            target_class_name (str): Class or service name to search usages for.
+            max_results (int, optional): Maximum number of usage examples to return.
+                Defaults to `max_usage_results`.
+
+        Returns:
+            List[Tuple[float, str, str, Dict[str, Any]]]: Sorted usage items as tuples:
+                (score, node_id, code, metadata).
+
+        Notes:
+            - Skips low-signal kinds (PARAMETER/VARIABLE/VALUE/IMPORT).
+            - Boosts HTTP endpoints (@GetMapping/@PostMapping/...) for controller usage.
+            - Performs simple de-duplication using a hash of the snippet prefix.
+    """
+    logger.debug(f"Szukam węzłów, które używają: {target_class_name}")
     try:
         all_nodes = collection.get(
             limit=max_nodes_limit,
@@ -246,10 +301,10 @@ def find_usage_nodes(collection: Any, target_class_name: str, max_results: int =
                     annotation in doc for annotation in ['@GetMapping', '@PostMapping', '@PutMapping', '@DeleteMapping', '@RequestMapping'])
 
                 if not is_test_method and not is_controller_endpoint:
-                    print(f"Pominięto definicję metody: {node_id}")
+                    logger.debug(f"Pominięto definicję metody: {node_id}")
                     continue
                 else:
-                    print(f"Keeping as usage example: {node_id}")
+                    logger.debug(f"Keeping as usage example: {node_id}")
 
             kind = metadata.get('kind', '')
             if kind in ['PARAMETER', 'VARIABLE', 'VALUE', 'IMPORT']:
@@ -282,21 +337,21 @@ def find_usage_nodes(collection: Any, target_class_name: str, max_results: int =
                     score += 0.4
                     usage_type = "method_call"
                     pattern_key = f"method_call_{target_class_name}"
-                    print(f"Method call: {target_class_name}() in {node_id}")
+                    logger.debug(f"Method call: {target_class_name}() in {node_id}")
 
             elif f'.{target_class_name}(' in doc.lower():
                 found_usage = True
                 score += 0.5
                 usage_type = "service_call"
                 pattern_key = f"service_call_{target_class_name}"
-                print(f"Service call: .{target_class_name}() in {node_id}")
+                logger.debug(f"Service call: .{target_class_name}() in {node_id}")
 
             if found_usage and pattern_key:
                 code_hash = hash(doc[:code_hash_length])
                 unique_key = f"{pattern_key}_{code_hash}"
 
                 if unique_key in seen_patterns:
-                    print(f"Pominięto duplikat: {node_id}")
+                    logger.debug(f"Pominięto duplikat: {node_id}")
                     continue
 
                 seen_patterns.add(unique_key)
@@ -306,11 +361,11 @@ def find_usage_nodes(collection: Any, target_class_name: str, max_results: int =
                     if any(mapping in doc for mapping in
                            ['@GetMapping', '@PostMapping', '@PutMapping', '@DeleteMapping']):
                         score += 0.3
-                        print(f"HTTP controller endpoint in {node_id}")
+                        logger.debug(f"HTTP controller endpoint in {node_id}")
 
             if found_usage:
                 if kind == 'CONSTRUCTOR' and usage_type != "method_call":
-                    print(f"Pominięto constructor bez method call: {node_id}")
+                    logger.debug(f"Pominięto constructor bez method call: {node_id}")
                     continue
 
                 usage_nodes.append((score, node_id, doc, metadata))
@@ -344,23 +399,47 @@ def find_usage_nodes(collection: Any, target_class_name: str, max_results: int =
             if len(filtered_usage) >= max_results:
                 break
 
-        print(f"Znaleziono {len(filtered_usage)} użyć po filtrowaniu (z {len(usage_nodes)} pierwotnych)")
+        logger.debug(f"Znaleziono {len(filtered_usage)} użyć po filtrowaniu (z {len(usage_nodes)} pierwotnych)")
 
         if filtered_usage:
-            print("Top usage nodes (po filtrowaniu):")
+            logger.debug("Top usage nodes (po filtrowaniu):")
             for i, (score, node_id, doc, metadata) in enumerate(filtered_usage[:debug_results_limit]):
-                print(f"{i + 1}. {node_id} (score: {score:.3f})")
-                print(f"Kind: {metadata.get('kind', 'UNKNOWN')}")
-                print(f"Preview: {doc[:100]}...")
+                logger.debug(f"{i + 1}. {node_id} (score: {score:.3f})")
+                logger.debug(f"Kind: {metadata.get('kind', 'UNKNOWN')}")
+                logger.debug(f"Preview: {doc[:100]}...")
 
         return filtered_usage
 
     except Exception as e:
-        print(f"Error in find_usage_nodes: {e}")
+        logger.error(f"Error in find_usage_nodes: {e}")
         return []
 
 
 async def general_question(question, collection, top_k=5, max_neighbors=3, code_snippet_limit=500, batch_size=5):
+    """
+        Retrieves top nodes for a general question using LLM-guided coarse filtering.
+
+        1) Asks an LLM to propose relevant node KINDS and name KEYWORDS.
+        2) Filters candidates by kind/keywords and blends with importance (`combined`).
+        3) Batches candidate snippets and asks the LLM to score relevance (1–5).
+        4) Expands with related neighbors and usage examples of selected classes.
+        5) Returns the top-k nodes with metadata and code.
+
+        Args:
+            question (str): Natural-language user question.
+            collection: Chroma collection handle.
+            top_k (int, optional): Number of final nodes to return. Defaults to 5.
+            max_neighbors (int, optional): Max related neighbors to fetch per selected node.
+                Defaults to 3.
+            code_snippet_limit (int, optional): Max characters per snippet sent to LLM.
+                Defaults to 500.
+            batch_size (int, optional): Number of candidates scored per LLM batch.
+                Defaults to 5.
+
+        Returns:
+            List[Tuple[int, Dict[str, Any]]]: Top nodes as (score, node_data) where
+            node_data contains `node`, `metadata`, and `code`.
+        """
     kind_weights = {
         "CLASS": 2.0,
         "INTERFACE": 1.8,
@@ -380,7 +459,7 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
     Żadnych komentarzy
     """
     analysis = await call_llm(classification_prompt)
-    print(f"LLM analysis: {analysis}")
+    logger.debug(f"LLM analysis: {analysis}")
     try:
         analysis = json.loads(analysis)
     except:
@@ -391,30 +470,7 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
 
     all_nodes = collection.get(include=["metadatas", "documents"])
 
-    # Obsługa specyficznego pytania o najważniejsze klasy
-    if any(kw in question.lower() for kw in ["najważniejsze klasy", "core classes", "main classes"]):
-        candidate_nodes = []
-        for i, node_id in enumerate(all_nodes["ids"]):
-            meta = all_nodes["metadatas"][i]
-            if meta.get("kind", "").upper() == "CLASS":
-                centrality_score = len(meta.get("related_entities", []))
-                candidate_nodes.append((centrality_score, node_id, meta, all_nodes["documents"][i] or ""))
-        top_nodes = sorted(candidate_nodes, key=lambda x: x[0], reverse=True)[:top_k]
-        return [(score, {"node": node_id, "metadata": meta, "code": doc})
-                for score, node_id, meta, doc in top_nodes]
-
-    if any(kw in question.lower() for kw in ["najważniejsze metody", "core methods", "main methods"]):
-        candidate_nodes = []
-        for i, node_id in enumerate(all_nodes["ids"]):
-            meta = all_nodes["metadatas"][i]
-            if meta.get("kind", "").upper() == "METHOD":
-                centrality_score = len(meta.get("related_entities", []))
-                candidate_nodes.append((centrality_score, node_id, meta, all_nodes["documents"][i] or ""))
-        top_nodes = sorted(candidate_nodes, key=lambda x: x[0], reverse=True)[:top_k]
-        return [(score, {"node": node_id, "metadata": meta, "code": doc})
-                for score, node_id, meta, doc in top_nodes]
-
-    print(f"kinds: {kinds}, keywords: {keywords}")
+    logger.debug(f"kinds: {kinds}, keywords: {keywords}")
 
     candidate_nodes = []
     for i in range(len(all_nodes["ids"])):
@@ -427,7 +483,6 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
             continue
 
         score = 1 if (not kinds or kind in kinds) else 0
-
         for kw in keywords:
             if kw in node_id.lower():
                 score += kind_weights.get(kind, 1.0)
@@ -440,7 +495,7 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
         candidate_nodes.append((node_id, metadata, doc, hybrid_score))
 
     if not candidate_nodes:
-        print("Brak kandydatów, wybieram fallback top-5 wg combined")
+        logger.debug("Brak kandydatów, wybieram fallback top-5 wg combined")
         fallback_nodes = sorted(
             zip(all_nodes["ids"], all_nodes["metadatas"], all_nodes["documents"]),
             key=lambda x: float(x[1].get("combined", 0.0)),
@@ -451,6 +506,7 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
     candidates_sorted = sorted(candidate_nodes, key=lambda x: x[3], reverse=True)[:top_k * 2]
 
     top_nodes = []
+    seen_nodes = set()
     for i in range(0, len(candidates_sorted), batch_size):
         batch = candidates_sorted[i:i + batch_size]
         code_snippets_map = []
@@ -477,7 +533,7 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
             scores = json.loads(answer)
         except:
             scores = []
-        print(f"LLM scores: {scores}")
+        logger.debug(f"LLM scores: {scores}")
         for s in scores:
             node_id = s.get("id")
             score = int(s.get("score", 0))
@@ -485,7 +541,9 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
                 node_tuple = next((c for c in batch if c[0] == node_id), None)
                 if node_tuple:
                     _, metadata, doc, _ = node_tuple
-                    top_nodes.append((score, {"node": node_id, "metadata": metadata, "code": doc}))
+                    if node_id not in seen_nodes:
+                        top_nodes.append((score, {"node": node_id, "metadata": metadata, "code": doc}))
+                        seen_nodes.add(node_id)
 
                     related_entities_str = metadata.get("related_entities", "")
                     try:
@@ -494,17 +552,33 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
                     except:
                         related_entities = []
 
-                    for neighbor_id in related_entities[:max_neighbors]:
-                        if neighbor_id not in {n[1]["node"] for n in top_nodes}:
-                            neighbor_res = collection.get(ids=[neighbor_id], include=["metadatas", "documents"])
-                            if neighbor_res["ids"]:
-                                neighbor_meta = neighbor_res["metadatas"][0]
-                                neighbor_doc = neighbor_res["documents"][0] or ""
-                                top_nodes.append((score - 1, {
-                                    "node": neighbor_id,
-                                    "metadata": neighbor_meta,
-                                    "code": neighbor_doc
-                                }))
+                    neighbors_to_fetch = [nid for nid in related_entities[:max_neighbors] if nid not in seen_nodes]
+
+                    if not neighbors_to_fetch:
+                        continue
+
+                    neighbors = collection.get(ids=neighbors_to_fetch, include=["metadatas", "documents"])
+                    for j in range(len(neighbors["ids"])):
+                        neighbor_id = neighbors["ids"][j]
+                        if neighbor_id in seen_nodes:
+                            continue
+                        neighbor_metadata = neighbors["metadatas"][j]
+                        neighbor_kind = neighbor_metadata.get("kind", "")
+                        neighbor_doc = neighbors["documents"][j] or ""
+
+                        # pomijamy sasiadow metody i zmienne, ktorych kod juz nalezy do klasy rodzica
+                        if metadata.get("kind") == "CLASS" and (
+                                neighbor_kind == "METHOD" or neighbor_kind == "VARIABLE") and str(
+                                neighbor_id).startswith(f"{node_id}."):
+                            continue
+
+                        top_nodes.append((score - 1, {
+                            "node": neighbor_id,
+                            "metadata": neighbor_metadata,
+                            "code": neighbor_doc
+                        }))
+                        seen_nodes.add(neighbor_id)
+
 
     final_top_nodes = top_nodes.copy()
     for score, node_data in top_nodes:
@@ -512,24 +586,149 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
             class_name = node_data["metadata"].get("label")
             usage_nodes = find_usage_nodes(collection, class_name, max_results=max_usage_nodes_for_context)
             for u_score, u_node_id, u_doc, u_metadata in usage_nodes:
+                if u_node_id in seen_nodes:
+                    continue
                 final_top_nodes.append((u_score - 1, {
                     "node": u_node_id,
                     "metadata": u_metadata,
                     "code": u_doc
                 }))
+                seen_nodes.add(u_node_id)
 
     top_nodes = sorted(final_top_nodes, key=lambda x: x[0], reverse=True)[:top_k]
-    print(f"TOP NODES from general_question: {[n[1]['node'] for n in top_nodes]}")
+    logger.debug(f"TOP NODES from general_question: {[n[1]['node'] for n in top_nodes]}")
 
     return top_nodes
 
 
+def get_metric_value(node, metric):
+    """
+        Returns a numeric metric value for a node metadata record.
+
+        Supports a special derived metric `number_of_neighbors` by counting
+        `related_entities`. Falls back to a float cast of the requested metric.
+
+        Args:
+            node (dict): Node metadata dictionary.
+            metric (str): Metric key (e.g., "combined", "pagerank",
+                "in-degree", "out-degree", "number_of_neighbors").
+
+        Returns:
+            float: Metric value for the node.
+    """
+    if metric == "number_of_neighbors":
+        related_entities_str = node.get("related_entities", "")
+        try:
+            related_entities = json.loads(related_entities_str) if isinstance(related_entities_str,
+                                                                              str) else related_entities_str
+        except:
+            related_entities = []
+        return len(related_entities)
+    else:
+        return float(node.get(metric, 0.0))
+
+
+async def find_top_nodes(question, collection):
+    """
+        Finds top nodes based on LLM-guided kind/metric selection.
+
+        Asks an LLM to determine relevant node kinds, a ranking metric, a result
+        limit, and sort order, then filters and sorts nodes accordingly.
+
+        Args:
+            question (str): Natural-language question guiding the selection.
+            collection: Chroma collection handle used to fetch node metadata.
+
+        Returns:
+            List[dict]: Top nodes as dictionaries with keys:
+                - node (str): Node ID.
+                - metadata (dict): Node metadata.
+                - metric_value (float): Value used for sorting.
+    """
+    classification_prompt = f"""
+        Pytanie użytkownika: "{question}"
+        Twoje zadanie:
+        1. Określ, jakich typów węzłów (CLASS, METHOD, VARIABLE, PARAMETER, CONSTRUCTOR) dotyczy pytanie.
+        2. Dopasuj klasyfikator do pytania spośród: loc (lines of code - rozmiar kodu), pagerank, eigenvector, in_degree, out_degree, combined, number_of_neighbors.
+        3. Określ ile węzłów użytkownik chce dostać.
+        4. Zdecyduj czy wybrać największe wartości (malejąco - "desc") czy najmniejsze wartości (rosnąco - "asc"). 
+               - Jeśli pytanie zawiera słowa typu "największe", "biggest", "largest", "most", "max" to ustaw "desc".
+               - Jeśli pytanie zawiera słowa typu "najmniejsze", "najmniej", "least", "smallest", "min" to ustaw "asc".
+        5. Jeśli pytanie dotyczy ogólnie "najważniejszych", "kluczowych", "głównych" lub "centralnych" elementów,
+            wybierz "CLASS" oraz "combined".
+        
+        
+        Odpowiedz wyłącznie w postaci JSON, np.:
+        {{"kinds": ["CLASS", "METHOD"], "metric": "combined", "limit": 5, "order": "asc"}}
+        Żadnych komentarzy, tylko JSON.
+        """
+
+    analysis = await call_llm(classification_prompt)
+    logger.debug(analysis)
+
+    try:
+        parsed = json.loads(analysis)
+        kinds = parsed.get("kinds", ["CLASS"])
+        metric = parsed.get("metric", "combined")
+        order = parsed.get("order", "desc")
+        limit = parsed.get("limit", 5)
+    except json.JSONDecodeError:
+        kinds = ["CLASS"]
+        metric = "combined"
+        order = "desc"
+        limit = 5
+
+    results = collection.get(include=["metadatas"])
+
+    nodes = [
+        {
+            "node": results["ids"][i],
+            "metadata": results["metadatas"][i],
+            "metric_value": get_metric_value(results["metadatas"][i], metric),
+        }
+        for i in range(len(results["ids"]))
+    ]
+
+    logger.debug(nodes[0])
+
+    filtered_sorted_nodes = sorted(
+        (node for node in nodes if node["metadata"].get("kind") in kinds),
+        key=lambda n: n["metric_value"],
+        reverse=(order.lower() == "desc")
+    )
+
+    return filtered_sorted_nodes[:limit]
+
+
 async def similar_node_fast(question: str, model_name: str = "microsoft/codebert-base", top_k: int = 20) -> Tuple[
     List[Tuple[float, Dict[str, Any]]], str]:
+    """
+        Fast path for retrieving similar nodes and building a final context.
+
+        Mixes intent analysis, embedding search (CodeBERT + Chroma), LLM-guided
+        filtering for general queries, and heuristic re-ranking. Optionally returns
+        a “top” summary using metric-based selection. Produces a token-bounded,
+        intent-aware context string.
+
+        Args:
+            question (str): User’s natural-language question.
+            model_name (str, optional): Embedding model identifier. Defaults to CodeBERT.
+            top_k (int, optional): Base number of results per query embedding. Defaults to 20.
+
+        Returns:
+            Tuple[List[Tuple[float, Dict[str, Any]]], str]:
+                - List of (score, node_data) tuples (deduplicated, reranked).
+                - Built context string (or a fallback marker).
+
+        Notes:
+            - Uses exception-specific embedding search when category == "exception".
+            - For category "top" with sufficient confidence, selects by metric/kind via `find_top_nodes`.
+            - Applies `rerank_results` and `build_context` for final assembly.
+        """
     start_time = time.time()
     try:
-        from graph.retriver import chroma_client, extract_key_value_pairs_simple
-        from graph.generate_embeddings_graph import generate_embeddings_graph
+        from src.graph.retriver import chroma_client, extract_key_value_pairs_simple
+        from src.graph.generate_embeddings_graph import generate_embeddings_graph
 
         try:
             from context import build_context
@@ -539,8 +738,8 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
 
         collection = get_collection("scg_embeddings")
         pairs = extract_key_value_pairs_simple(question)
-        print(f"Pytanie: '{question}'")
-        print(f"Wyciągnięte pary: {pairs}")
+        logger.debug(f"Pytanie: '{question}'")
+        logger.debug(f"Wyciągnięte pary: {pairs}")
 
         embeddings_input = []
         for key, value in pairs:
@@ -548,7 +747,7 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
 
         if not embeddings_input:
             embeddings_input = [question]
-        print(f"Embedding input: {embeddings_input}")
+        logger.debug(f"Embedding input: {embeddings_input}")
 
         get_graph_model()
         analyzer = get_intent_analyzer()
@@ -560,10 +759,57 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
             "enhanced": analysis_result.enhanced
         }
 
-        print(f"Enhanced classification: {analysis}")
+        if analysis["category"] == "top" and analysis["confidence"] > 0.6:
+            logger.debug("Finding top classes or methods")
+            top_nodes = await find_top_nodes(question, collection)
+            context = ''
+            context = " ".join(
+                f"{node.get("metadata", {}).get("label", "")} - {node.get("metric_value"):.2f}" for node in top_nodes
+            )
+            logger.debug(context)
+            end_time = time.time()
+            elapsed_ms = (end_time - start_time) * 1000
+            logger.debug(f"ukonczono w: {elapsed_ms:.1f}ms")
+            return top_nodes, context or "<NO CONTEXT FOUND>"
+
+
+        logger.debug(f"Enhanced classification: {analysis}")
         if not pairs or (analysis["category"] == "general" and analysis["confidence"] > 0.6):
-            print("Using LLM-based general_question filtering")
-            top_nodes = await general_question(question, collection, top_k=5, max_neighbors=2)
+            if analysis["category"] == "exception":
+                logger.debug("EXCEPTION category detected - forcing embeddings search")
+                embeddings_input = [question]
+                query_embeddings = generate_embeddings_graph(embeddings_input, model_name)
+                query_result = collection.query(
+                    query_embeddings=[query_embeddings[0].tolist()],
+                    n_results=top_k * 2,
+                    include=["embeddings", "metadatas", "documents", "distances"]
+                )
+
+                all_results = []
+                for i in range(len(query_result["ids"][0])):
+                    score = 1 - query_result["distances"][0][i]
+                    node_id = query_result["ids"][0][i]
+                    metadata = query_result["metadatas"][0][i]
+                    code = query_result["documents"][0][i]
+                    all_results.append((score, {
+                        "node": node_id,
+                        "metadata": metadata,
+                        "code": code}))
+                reranked_results = rerank_results(question, all_results, analysis)
+                seen = set()
+                unique_results = []
+                for score, node in reranked_results:
+                    if node["node"] not in seen:
+                        unique_results.append((score, node))
+                        seen.add(node["node"])
+
+                top_nodes = unique_results[:10]
+                logger.debug(f"EXCEPTION: found {len(top_nodes)} nodes via embeddings")
+
+            else:
+                logger.debug("Using LLM-based general_question filtering")
+                top_nodes = await general_question(question, collection, top_k=5, max_neighbors=2)
+
             category = analysis.get("category", "general")
             confidence = analysis.get("confidence", 0.5)
             full_context = build_context(
@@ -575,14 +821,14 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
             )
             end_time = time.time()
             elapsed_ms = (end_time - start_time) * 1000
-            print(f"ukonczono w: {elapsed_ms:.1f}ms")
+            logger.debug(f"ukonczono w: {elapsed_ms:.1f}ms")
             return top_nodes, full_context or "<NO CONTEXT FOUND>"
 
         query_embeddings = generate_embeddings_graph(embeddings_input, model_name)
         all_results = []
 
         if len(query_embeddings) == 1:
-            print("Proste pytanie 1 embedding = 1 zapytanie do chromaDB")
+            logger.debug("Proste pytanie 1 embedding = 1 zapytanie do chromaDB")
             query_result = collection.query(
                 query_embeddings=[query_embeddings[0].tolist()],
                 n_results=top_k * len(embeddings_input),
@@ -597,26 +843,26 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
                 if i < debug_results_limit:
                     raw_distance = query_result["distances"][0][i]
                     calculated_score = 1 - raw_distance
-                    print(f"Wynik {i + 1}:")
-                    print(f"Node ID: {node_id}")
-                    print(f"Raw distance: {raw_distance:.4f}")
-                    print(f"Calculated score: {calculated_score:.4f}")
-                    print(f"Label: {metadata.get('label', 'NO_LABEL')}")
-                    print(f"Kind: {metadata.get('kind', 'NO_KIND')}")
-                    print(f"Code preview: {code[:max_code_preview] if code else 'NO_CODE'}...")
-                    print("")
+                    logger.debug(f"Wynik {i + 1}:")
+                    logger.debug(f"Node ID: {node_id}")
+                    logger.debug(f"Raw distance: {raw_distance:.4f}")
+                    logger.debug(f"Calculated score: {calculated_score:.4f}")
+                    logger.debug(f"Label: {metadata.get('label', 'NO_LABEL')}")
+                    logger.debug(f"Kind: {metadata.get('kind', 'NO_KIND')}")
+                    logger.debug(f"Code preview: {code[:max_code_preview] if code else 'NO_CODE'}...")
+                    logger.debug("")
                 all_results.append((score, {
                     "node": node_id,
                     "metadata": metadata,
                     "code": code
                 }))
         else:
-            print(f"Złożone pytanie: {len(query_embeddings)} embeddingow = {len(query_embeddings)} zapytan do ChromaDB")
+            logger.debug(f"Złożone pytanie: {len(query_embeddings)} embeddingow = {len(query_embeddings)} zapytan do ChromaDB")
 
             batch_embeddings = [emb.tolist() for emb in query_embeddings]
 
             for i, emb in enumerate(batch_embeddings):
-                print(f"  Zapytanie {i + 1}/{len(batch_embeddings)}: '{embeddings_input[i]}'")
+                logger.debug(f"  Zapytanie {i + 1}/{len(batch_embeddings)}: '{embeddings_input[i]}'")
                 query_result = collection.query(
                     query_embeddings=[emb],
                     n_results=top_k,
@@ -632,13 +878,13 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
                     if j < debug_results_limit:
                         raw_distance = query_result["distances"][0][j]
                         calculated_score = 1 - raw_distance
-                        print(f"Wynik {j + 1}:")
-                        print(f"Node ID: {node_id}")
-                        print(f"Raw distance: {raw_distance:.4f}")
-                        print(f"Calculated score: {calculated_score:.4f}")
-                        print(f"Label: {metadata.get('label', 'NO_LABEL')}")
-                        print(f"Kind: {metadata.get('kind', 'NO_KIND')}")
-                        print("")
+                        logger.debug(f"Wynik {j + 1}:")
+                        logger.debug(f"Node ID: {node_id}")
+                        logger.debug(f"Raw distance: {raw_distance:.4f}")
+                        logger.debug(f"Calculated score: {calculated_score:.4f}")
+                        logger.debug(f"Label: {metadata.get('label', 'NO_LABEL')}")
+                        logger.debug(f"Kind: {metadata.get('kind', 'NO_KIND')}")
+                        logger.debug("")
 
                     all_results.append((score, {
                         "node": node_id,
@@ -646,12 +892,12 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
                         "code": code
                     }))
 
-        print(f"Zebrano łącznie {len(all_results)} wyników z ChromaDB")
+        logger.debug(f"Zebrano łącznie {len(all_results)} wyników z ChromaDB")
 
         reranked_results = rerank_results(question, all_results, analysis)
-        print(f"Reranked {len(reranked_results)} results")
+        logger.debug(f"Reranked {len(reranked_results)} results")
 
-        print(f"Deduplikowanie: usuwam duplikaty z {len(reranked_results)} wyników")
+        logger.debug(f"Deduplikowanie: usuwam duplikaty z {len(reranked_results)} wyników")
         seen: Set[str] = set()
         unique_results = []
         for score, node in reranked_results:
@@ -661,10 +907,10 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
                 seen.add(node_id)
                 if len(unique_results) >= len(embeddings_input) * top_k:
                     break
-        print(f"Po deduplikowaniu: {len(unique_results)} unikalnych wyników")
+        logger.debug(f"Po deduplikowaniu: {len(unique_results)} unikalnych wyników")
 
         if analyzer.is_usage_question(question):
-            print("Usage question. Szukam w related_entities")
+            logger.debug("Usage question. Szukam w related_entities")
 
             target_entity = None
             target_type = None
@@ -672,23 +918,23 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
                 best_match = all_results[0]
                 node_id = best_match[1]["node"]
                 metadata = best_match[1]["metadata"]
-                print(f"Using ORIGINAL best match from ChromaDB: {node_id}")
+                logger.debug(f"Using ORIGINAL best match from ChromaDB: {node_id}")
 
                 if metadata.get("kind") == "METHOD":
                     target_entity = metadata.get("label")
                     target_type = "method"
-                    print(f"Target method identified: {target_entity}")
+                    logger.debug(f"Target method identified: {target_entity}")
                 elif metadata.get("kind") == "CLASS":
                     target_entity = metadata.get("label")
                     target_type = "class"
-                    print(f"Target class identified: {target_entity}")
+                    logger.debug(f"Target class identified: {target_entity}")
                 elif "." in node_id:
                     parts = node_id.split('.')
                     for part in reversed(parts):
                         if part and part[0].isupper():
                             target_entity = part
                             target_type = "class"
-                            print(f"Target class identified from node_id: {target_entity}")
+                            logger.debug(f"Target class identified from node_id: {target_entity}")
                             break
 
             top_nodes = unique_results[:1]
@@ -703,7 +949,7 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
                         "code": doc
                     }))
 
-                print(f"Added {len(usage_nodes)} usage nodes to results")
+                logger.debug(f"Added {len(usage_nodes)} usage nodes to results")
 
             top_nodes = top_nodes[:max_top_nodes_for_usage]
 
@@ -712,12 +958,11 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
         else:
             top_nodes = unique_results[:len(embeddings_input)]
 
-        print(f"Wybrano {len(top_nodes)} najlepszych węzłów")
+        logger.debug(f"Wybrano {len(top_nodes)} najlepszych węzłów")
 
         category = analysis.get("category", "general")
         confidence = analysis.get("confidence", 0.5)
-
-        print(f"Building context with category={category}, confidence={confidence}, target={target_entity if 'target_entity' in locals() else None}")
+        logger.debug(f"Building context with category={category}, confidence={confidence}, target={target_entity if 'target_entity' in locals() else None}")
         full_context = build_context(
             top_nodes,
             category,
@@ -726,16 +971,16 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
             target_method=target_entity if 'target_entity' in locals() else None
         )
 
-        print(f"Context built: {len(full_context)} chars")
+        logger.debug(f"Context built: {len(full_context)} chars")
 
         end_time = time.time()
         elapsed_ms = (end_time - start_time) * 1000
-        print(f"ukonczono w: {elapsed_ms:.1f}ms")
+        logger.debug(f"ukonczono w: {elapsed_ms:.1f}ms")
         return top_nodes, full_context or "<NO CONTEXT FOUND>"
 
     except Exception as e:
-        print(f"Fallback do oryginalnej funkcji: {e}")
-        from graph.retriver import similar_node
+        logger.warning(f"Fallback do oryginalnej funkcji: {e}")
+        from src.graph.retriver import similar_node
         return similar_node(question, model_name, top_k)
 
 
