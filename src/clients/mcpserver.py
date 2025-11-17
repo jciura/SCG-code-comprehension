@@ -1,6 +1,5 @@
 import httpx
 from mcp.server.fastmcp import FastMCP
-from src.core.config import JUNIE_URL
 from loguru import logger
 
 mcp = FastMCP("junie-context")
@@ -25,7 +24,7 @@ async def ask_junie(question: str) -> str:
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
-                JUNIE_URL,
+                "http://127.0.0.1:8000/ask_junie",
                 json={"question": question},
             )
             response.raise_for_status()

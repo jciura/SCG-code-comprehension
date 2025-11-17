@@ -17,7 +17,6 @@ from src.core.models import PrompRequest, SimpleRAGResponse, NodeRAGResponse, Pe
 from src.core.prompt import build_prompt, post_process_answer
 from src.core.config import MODEL_NAME, OLLAMA_API_URL, NODE_CONTEXT_HISTORY, CODEBERT_MODEL_NAME, projects, ground_truth, metrics_path
 
-
 from src.core.evaluator import RAGEvaluator
 
 logging.basicConfig(level=logging.INFO)
@@ -412,23 +411,24 @@ async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
             logger.debug(answer)
 
         processed_answer = post_process_answer(answer, user_intent)
-        # evaluation_result = await evaluate_if_needed(req.question, processed_answer, context)
-        # if evaluation_result:
-        #     try:
-        #         eval_log_path = metrics_path
-        #         os.makedirs(os.path.dirname(eval_log_path), exist_ok=True)
-        #         with open(eval_log_path, 'a', encoding='utf-8') as f:
-        #             eval_entry = {
-        #                 "timestamp": time.time(),
-        #                 "question": req.question,
-        #                 "answer": processed_answer,
-        #                 "question_id": evaluation_result["question_id"],
-        #                 "category": evaluation_result["category"],
-        #                 "ragas_score": evaluation_result["metrics"]["ragas"]["ragas_score"],
-        #                 "full_metrics": evaluation_result["metrics"]}
-        #             f.write(json.dumps(eval_entry, ensure_ascii=False, indent=2) + '\n\n')
-        #     except Exception as e:
-        #         logger.warning(f"Failed to save evaluation result: {e}")
+        evaluation_result = await evaluate_if_needed(req.question, processed_answer, context)
+        if evaluation_result:
+            try:
+                eval_log_path = metrics_path
+                os.makedirs(os.path.dirname(eval_log_path), exist_ok=True)
+                with open(eval_log_path, 'a', encoding='utf-8') as f:
+                    eval_entry = {
+                        "timestamp": time.time(),
+                        "question": req.question,
+                        "answer": processed_answer,
+                        "question_id": evaluation_result["question_id"],
+                        "category": evaluation_result["category"],
+                        "ragas_score": evaluation_result["metrics"]["ragas"]["ragas_score"],
+                        "full_metrics": evaluation_result["metrics"]}
+                    f.write(json.dumps(eval_entry, ensure_ascii=False, indent=2) + '\n\n')
+                    logger.warning(f"EVALUATION RESULT: {evaluation_result}")
+            except Exception as e:
+                logger.warning(f"Failed to save evaluation result: {e}")
         history_save_start_time = time.time()
         conversation_history.add_message("user", req.question)
         conversation_history.add_message("assistant", processed_answer)
@@ -518,13 +518,44 @@ async def ask_junie(req: AskRequest):
                 - context (str): Retrieved context or error message
                 - matches (int): Number of matching nodes found
         """
+    total_start_time = time.time()
     logger.info(f"Received question: {req.question}")
 
     try:
+        analyzer = get_intent_analyzer()
+        intent_start_time = time.time()
+        user_intent_analysis = analyzer.enhanced_classify_question(req.question)
+        user_intent = {
+            "primary_intent": user_intent_analysis.primary_intent.value,
+            "secondary_intents": user_intent_analysis.secondary_intents,
+            "requires_examples": user_intent_analysis.requires_examples,
+            "requires_usage_info": user_intent_analysis.requires_usage_info,
+            "requires_implementation_details": user_intent_analysis.requires_implementation_details,
+        }
+        intent_time = time.time() - intent_start_time
+        logger.info(f"User intent analysis: {intent_time:.3f}s - {user_intent}")
+        rag_start_time = time.time()
         matches, context = await asyncio.wait_for(
             similar_node_fast(req.question, model_name=CODEBERT_MODEL_NAME),
             timeout=30.0
         )
+        rag_time = time.time() - rag_start_time
+        logger.info(f"RAG processing: {rag_time:.3f}s, found {len(matches)} matches")
+
+        prompt_start_time = time.time()
+        prompt = build_prompt(
+            question=req.question,
+            context=context,
+            intent=user_intent,
+            conversation_history=conversation_history
+        )
+        prompt_time = time.time() - prompt_start_time
+        logger.info(f"Intent-aware prompt built: {prompt_time:.3f}s, length: {len(prompt)} chars")
+
+        if logger.level <= logging.DEBUG:
+            logger.debug("Generated prompt:")
+            logger.debug(prompt)
+
 
         if not isinstance(context, str):
             context = str(context)
@@ -541,98 +572,6 @@ async def ask_junie(req: AskRequest):
             "context": f"Error: {str(e)}",
             "matches": 0
         }
-
-@app.get("/files", response_model=List[str])
-def list_files(path: str = "") -> List[str]:
-    """
-        Handles the `/files` endpoint that lists files in a given directory.
-
-        Validates the requested path to prevent directory traversal, checks access
-        permissions, and returns a sorted list of file and folder names.
-
-        Args:
-            path (str): Optional subdirectory path relative to BASE_DIR. Defaults to "".
-
-        Returns:
-            List[str]: Alphabetically sorted list of files and directories.
-
-        Raises:
-            HTTPException: If the path is outside BASE_DIR, inaccessible, or not found.
-    """
-    target_dir = os.path.abspath(os.path.join(BASE_DIR, path))
-    if not target_dir.startswith(BASE_DIR):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    try:
-        if not os.path.exists(target_dir):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Folder not found"
-            )
-        files = os.listdir(target_dir)
-        return sorted(files)
-    except PermissionError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Permission denied"
-        )
-
-
-@app.get("/file")
-def get_file(path: str = Query(..., description="Relative path to the file")) -> dict:
-    """
-        Handles the `/file` endpoint that retrieves the content of a text file.
-
-        Validates and reads a file relative to BASE_DIR, ensuring secure access.
-        Returns file content along with metadata such as path, size, and timestamp.
-
-        Args:
-            path (str): Relative path to the requested file within BASE_DIR.
-
-        Returns:
-            dict: File metadata and content, including:
-                - content (str): The text content of the file.
-                - file_path (str): Relative file path.
-                - size (int): Number of characters in the file.
-                - timestamp (float): Current UNIX timestamp.
-
-        Raises:
-            HTTPException: If access is denied, the file does not exist,
-                cannot be read, or is not a valid text file.
-    """
-    file_path = os.path.abspath(os.path.join(BASE_DIR, path))
-    if not file_path.startswith(BASE_DIR):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    if not os.path.isfile(file_path):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="File not found"
-        )
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        return {
-            "content": content,
-            "file_path": path,
-            "size": len(content),
-            "timestamp": time.time()
-        }
-    except UnicodeDecodeError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File is not text or has unsupported encoding"
-        )
-    except Exception as e:
-        logger.error(f"Error reading file {file_path}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
 
 
 @app.on_event("startup")

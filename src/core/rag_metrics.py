@@ -104,19 +104,20 @@ class RAGMetrics:
         if not answer.strip() or not retrieved_contexts:
             return 0.0
         claims = self._decompose_answer(answer)
+        logger.info(claims)
         if not claims:
             return 0.0
-        context_text = " ".join(retrieved_contexts)
-        context_emb = self.embedding_model.encode([context_text])
+        context_embeddings = [self.embedding_model.encode([ctx]) for ctx in retrieved_contexts]
         faithful_count = 0
-        threshold = 0.55
+        threshold = 0.45
         for claim in claims:
+            logger.info(f"Claim: {claim}")
             claim_emb = self.embedding_model.encode([claim])
-            similarity = cosine_similarity(claim_emb, context_emb)[0][0]
-            if similarity > threshold:
+            max_sim = max(cosine_similarity(claim_emb, ctx_emb)[0][0] for ctx_emb in context_embeddings)
+            logger.info("Max similarity: {:.4f}".format(max_sim))
+            if max_sim > threshold:
                 faithful_count += 1
         faithfulness_score = faithful_count / len(claims)
-        # logger.debug(f"Faithfulness: {faithfulness_score:.3f} ({faithful_count}/{len(claims)} claims)")
         return faithfulness_score
 
     def answer_relevance(self, question: str, answer: str) -> float:
