@@ -20,7 +20,7 @@ debug_results_limit = 5
 max_nodes_limit = 1000
 code_hash_length = 200
 max_test_usage = 4
-max_describe_nodes = 5
+max_describe_nodes = 1
 
 _graph_model = None
 
@@ -740,7 +740,7 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
                 return "\n\n".join([node[1]["code"] for node in nodes[:5] if node[1]["code"]])
 
         collection = get_collection("scg_embeddings")
-        pairs = extract_key_value_pairs_simple(question)
+        pairs = await extract_key_value_pairs_simple(question)
         logger.debug(f"Pytanie: '{question}'")
         logger.debug(f"Wyciągnięte pary: {pairs}")
 
@@ -829,65 +829,35 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
 
         query_embeddings = generate_embeddings_graph(embeddings_input, model_name)
         all_results = []
+        batch_embeddings = [emb.tolist() for emb in query_embeddings]
 
-        if len(query_embeddings) == 1:
-            logger.debug("Proste pytanie 1 embedding = 1 zapytanie do chromaDB")
+        for i, emb in enumerate(batch_embeddings):
+            if len(batch_embeddings) > 1:
+                logger.debug(f"  Zapytanie {i + 1}/{len(batch_embeddings)}: '{embeddings_input[i]}'")
+            else:
+                logger.debug("Proste zapytanie 1 embedding")
             query_result = collection.query(
-                query_embeddings=[query_embeddings[0].tolist()],
-                n_results=top_k * len(embeddings_input),
+                query_embeddings=[emb],
+                n_results=1,
                 include=["embeddings", "metadatas", "documents", "distances"]
             )
 
-            for i in range(len(query_result["ids"][0])):
-                score = 1 - query_result["distances"][0][i]
-                node_id = query_result["ids"][0][i]
-                metadata = query_result["metadatas"][0][i]
-                code = query_result["documents"][0][i]
-                if i < debug_results_limit:
-                    raw_distance = query_result["distances"][0][i]
+            for j in range(len(query_result["ids"][0])):
+                score = 1 - query_result["distances"][0][j]
+                node_id = query_result["ids"][0][j]
+                metadata = query_result["metadatas"][0][j]
+                code = query_result["documents"][0][j]
+
+                if j < debug_results_limit:
+                    raw_distance = query_result["distances"][0][j]
                     calculated_score = 1 - raw_distance
-                    logger.debug(f"Wynik {i + 1}:")
+                    logger.debug(f"Wynik {j + 1}:")
                     logger.debug(f"Node ID: {node_id}")
                     logger.debug(f"Raw distance: {raw_distance:.4f}")
                     logger.debug(f"Calculated score: {calculated_score:.4f}")
                     logger.debug(f"Label: {metadata.get('label', 'NO_LABEL')}")
                     logger.debug(f"Kind: {metadata.get('kind', 'NO_KIND')}")
-                    logger.debug(f"Code preview: {code[:max_code_preview] if code else 'NO_CODE'}...")
                     logger.debug("")
-                all_results.append((score, {
-                    "node": node_id,
-                    "metadata": metadata,
-                    "code": code
-                }))
-        else:
-            logger.debug(f"Złożone pytanie: {len(query_embeddings)} embeddingow = {len(query_embeddings)} zapytan do ChromaDB")
-
-            batch_embeddings = [emb.tolist() for emb in query_embeddings]
-
-            for i, emb in enumerate(batch_embeddings):
-                logger.debug(f"  Zapytanie {i + 1}/{len(batch_embeddings)}: '{embeddings_input[i]}'")
-                query_result = collection.query(
-                    query_embeddings=[emb],
-                    n_results=top_k,
-                    include=["embeddings", "metadatas", "documents", "distances"]
-                )
-
-                for j in range(len(query_result["ids"][0])):
-                    score = 1 - query_result["distances"][0][j]
-                    node_id = query_result["ids"][0][j]
-                    metadata = query_result["metadatas"][0][j]
-                    code = query_result["documents"][0][j]
-
-                    if j < debug_results_limit:
-                        raw_distance = query_result["distances"][0][j]
-                        calculated_score = 1 - raw_distance
-                        logger.debug(f"Wynik {j + 1}:")
-                        logger.debug(f"Node ID: {node_id}")
-                        logger.debug(f"Raw distance: {raw_distance:.4f}")
-                        logger.debug(f"Calculated score: {calculated_score:.4f}")
-                        logger.debug(f"Label: {metadata.get('label', 'NO_LABEL')}")
-                        logger.debug(f"Kind: {metadata.get('kind', 'NO_KIND')}")
-                        logger.debug("")
 
                     all_results.append((score, {
                         "node": node_id,
@@ -956,10 +926,55 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
 
             top_nodes = top_nodes[:max_top_nodes_for_usage]
 
-        elif analyzer.is_description_question(question):
-            top_nodes = unique_results[:min(max_describe_nodes, len(unique_results))]
         else:
+            # Żeby było mniej kontekstu dla definicji bierzemy tyle max_describe_nodes na podstawie zlozonosci pytania
+            # i dobieramy 2 sasiadow dla kazdego
             top_nodes = unique_results[:len(embeddings_input)]
+            """
+                We take neighbors only if question is about definiton of one object, otherwise too much context
+                and llm may have problems with answering.
+                If user wants more info about one class he should ask about that one class
+            """
+            if len(top_nodes) == 1:
+                current_nodes = top_nodes.copy()
+                added_nodes = {node_data["node"] for _, node_data in top_nodes}
+                for node_score, node_data in current_nodes:
+                    node_id = node_data["node"]
+                    metadata = node_data["metadata"]
+
+                    related_entities_str = metadata.get("related_entities", "")
+                    try:
+                        related_entities = json.loads(related_entities_str) if isinstance(related_entities_str,
+                                                                                          str) else related_entities_str
+                    except:
+                        related_entities = []
+
+                    neighbors_to_fetch = related_entities[:2]
+
+                    if neighbors_to_fetch:
+                        try:
+                            neighbors = collection.get(ids=neighbors_to_fetch, include=["metadatas", "documents"])
+                        except Exception as e:
+                            logger.warning(f"ChromaDB get failed (likely telemetry): {e}")
+                            neighbors = {"ids": [], "metadatas": [], "documents": []}
+                        for j in range(len(neighbors["ids"])):
+                            neighbor_id = neighbors["ids"][j]
+                            neighbor_metadata = neighbors["metadatas"][j]
+                            neighbor_kind = neighbor_metadata.get("kind", "")
+                            neighbor_doc = neighbors["documents"][j] or ""
+
+                            # pomijamy sasiadow metody i zmienne, ktorych kod juz nalezy do klasy rodzica
+                            if metadata.get("kind") == "CLASS" and (
+                                    neighbor_kind == "METHOD" or neighbor_kind == "VARIABLE") and str(
+                                neighbor_id).startswith(f"{node_id}.") or neighbor_id in added_nodes:
+                                continue
+
+                            top_nodes.append((node_score, {
+                                "node": neighbor_id,
+                                "metadata": neighbor_metadata,
+                                "code": neighbor_doc
+                            }))
+                            added_nodes.add(neighbor_id)
 
         logger.debug(f"Wybrano {len(top_nodes)} najlepszych węzłów")
 
