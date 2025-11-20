@@ -96,6 +96,17 @@ Schemat przepływu danych i zapytań:
 - Zależności z pliku `requirements.txt`:
   ```bash
   pip install -r requirements.txt
-
+  
+## Zmiana na uv
+1. Usunąć venv 
+2. Zrobić 
+```bash
+uv sync 
+```
+3. Aktywować środowisko 
+4. Uruchomić aplikacje 
+```bash
+   uvicorn src.app.main:app --reload
+```
 ## Linki 
 https://medium.com/@med.el.harchaoui/rag-evaluation-metrics-explained-a-complete-guide-dbd7a3b571a8

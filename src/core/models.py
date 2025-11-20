@@ -1,10 +1,9 @@
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Dict, Any
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-
 
 
 class IntentCategory(str, Enum):
@@ -17,12 +16,9 @@ class IntentCategory(str, Enum):
     EXCEPTION = "exception"
 
 
-
-
 @dataclass
 class IntentAnalysis:
     primary_intent: IntentCategory
-    secondary_intents: List[str]
     confidence: float
     scores: Dict[str, float]
     requires_examples: bool
@@ -36,23 +32,23 @@ class PrompRequest(BaseModel):
     context: str = Field(default="", max_length=50000)
     history: List[dict] = Field(default=[])
 
-    @field_validator('question')
+    @field_validator("question")
     @classmethod
     def question_not_empty(cls, v):
         if not v.strip():
-            raise ValueError('Question is empty')
+            raise ValueError("Question is empty")
         return v.strip()
 
-    @field_validator('history')
+    @field_validator("history")
     @classmethod
     def validate_history(cls, v):
         if len(v) > 20:
-            raise ValueError('History cannot contain more than 20 items')
+            raise ValueError("History cannot contain more than 20 items")
         for item in v:
             if not isinstance(item, dict):
-                raise ValueError('History items must be dictionaries')
-            if 'role' not in item or 'content' not in item:
-                raise ValueError('History items must have role and content fields')
+                raise ValueError("History items must be dictionaries")
+            if "role" not in item or "content" not in item:
+                raise ValueError("History items must have role and content fields")
         return v
 
 
@@ -61,11 +57,11 @@ class BaseRAGResponse(BaseModel):
     processing_time: Optional[float] = Field(default=None, ge=0)
     timestamp: float = Field(default_factory=time.time)
 
-    @field_validator('answer')
+    @field_validator("answer")
     @classmethod
     def answer_not_empty(cls, v):
         if not v.strip():
-            raise ValueError('Answer is empty')
+            raise ValueError("Answer is empty")
         return v
 
 
@@ -73,24 +69,21 @@ class SimpleRAGResponse(BaseRAGResponse):
     pass
 
 
-
 class NodeRAGResponse(BaseRAGResponse):
     used_context: str = Field(default="")
     question_category: Optional[IntentCategory] = None
 
 
-
-
 class ConversationMessage(BaseModel):
-    role: str = Field(..., pattern=r'^(user|assistant|system)$')
+    role: str = Field(..., pattern=r"^(user|assistant|system)$")
     content: str = Field(..., min_length=1, max_length=50000)
     timestamp: float = Field(default_factory=time.time)
 
-    @field_validator('content')
+    @field_validator("content")
     @classmethod
     def content_not_empty(cls, v):
         if not v.strip():
-            raise ValueError('Message content is empty')
+            raise ValueError("Message content is empty")
         return v.strip()
 
 
@@ -118,11 +111,11 @@ class ConversationHistory(BaseModel):
     def clear(self) -> None:
         self.messages.clear()
 
-    @field_validator('messages')
+    @field_validator("messages")
     @classmethod
     def validate_messages(cls, v):
         if len(v) > 100:
-            raise ValueError('Messages list cannot exceed 100 items')
+            raise ValueError("Messages list cannot exceed 100 items")
         return v
 
 
@@ -137,7 +130,7 @@ class PerformanceMetrics(BaseModel):
     response_length: int = Field(default=0, ge=0)
     timestamp: float = Field(default_factory=time.time)
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_time_consistency(self):
         total = self.total_time
         rag = self.rag_time
@@ -147,7 +140,7 @@ class PerformanceMetrics(BaseModel):
 
         min_expected = rag + llm + hist_load + hist_save
         if total < min_expected:
-            raise ValueError(f'Total time {total} is less than sum of components {min_expected}')
+            raise ValueError(f"Total time {total} is less than sum of components {min_expected}")
         return self
 
 
@@ -189,11 +182,13 @@ class GroundTruthTestSuite(BaseModel):
     @classmethod
     def load_from_file(cls, filepath: str) -> "GroundTruthTestSuite":
         import json
-        with open(filepath, 'r', encoding='utf-8') as f:
+
+        with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
         return cls(**data)
 
     def save_to_file(self, filepath: str):
         import json
-        with open(filepath, 'w', encoding='utf-8') as f:
+
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(self.model_dump(), f, ensure_ascii=False, indent=2)

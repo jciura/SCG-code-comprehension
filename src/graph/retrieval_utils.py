@@ -1,0 +1,235 @@
+import json
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+from loguru import logger
+
+from src.graph.usage_finder import find_usage_nodes
+
+debug_results_limit = 5
+max_top_nodes_for_usage = 7
+max_usage_nodes_for_context = 5
+
+
+def get_embedding_inputs(pairs: List[Tuple[str, str]], question: str) -> List[str]:
+    """
+    Converts extracted pairs to embedding input strings.
+
+    Args:
+        pairs: List of (type, name) pairs extracted from question
+        question: Original question string
+
+    Returns:
+        List of strings to generate embeddings for
+    """
+    embeddings_input = []
+    for key, value in pairs:
+        embeddings_input.append(f"{key} {value}" if key else value)
+    if not embeddings_input:
+        embeddings_input = [question]
+    return embeddings_input
+
+
+def query_embeddings(
+    collection: Any, query_embeddings: List[Any], embeddings_input: List[str]
+) -> List[Tuple[float, Dict[str, Any]]]:
+    """
+    Queries ChromaDB with embeddings and returns results.
+
+    Args:
+        collection: Chroma collection handle
+        query_embeddings: List of embedding vectors
+        embeddings_input: Original input strings (for logging)
+
+    Returns:
+        List of (score, node_data) tuples
+    """
+    all_results = []
+    batch_embeddings = [emb.tolist() for emb in query_embeddings]
+
+    for i, emb in enumerate(batch_embeddings):
+        if len(batch_embeddings) > 1:
+            logger.debug(f"  Query {i + 1}/{len(batch_embeddings)}: '{embeddings_input[i]}'")
+        else:
+            logger.debug("Simple query with 1 embedding")
+
+        query_result = collection.query(
+            query_embeddings=[emb],
+            n_results=1,
+            include=["embeddings", "metadatas", "documents", "distances"],
+        )
+        for j in range(len(query_result["ids"][0])):
+            score = 1 - query_result["distances"][0][j]
+            node_id = query_result["ids"][0][j]
+            metadata = query_result["metadatas"][0][j]
+            code = query_result["documents"][0][j]
+            if j < debug_results_limit:
+                raw_distance = query_result["distances"][0][j]
+                calculated_score = 1 - raw_distance
+                logger.debug(f"Result {j + 1}:")
+                logger.debug(f"Node ID: {node_id}")
+                logger.debug(f"Raw distance: {raw_distance:.4f}")
+                logger.debug(f"Calculated score: {calculated_score:.4f}")
+                logger.debug(f"Label: {metadata.get('label', 'NO_LABEL')}")
+                logger.debug(f"Kind: {metadata.get('kind', 'NO_KIND')}")
+                logger.debug("")
+            all_results.append((score, {"node": node_id, "metadata": metadata, "code": code}))
+
+    logger.debug(f"Collected {len(all_results)} results from ChromaDB")
+    return all_results
+
+
+def deduplicate_results(
+    results: List[Tuple[float, Dict[str, Any]]], max_results: int
+) -> List[Tuple[float, Dict[str, Any]]]:
+    """
+    Deduplicates results by node ID.
+
+    Args:
+        results: List of (score, node_data) tuples
+        max_results: Maximum number of unique results to return
+
+    Returns:
+        Deduplicated list of results
+    """
+    logger.debug(f"Deduplicating: removing duplicates from {len(results)} results")
+    seen: Set[str] = set()
+    unique_results = []
+    for score, node in results:
+        node_id = node["node"]
+        if node_id not in seen:
+            unique_results.append((score, node))
+            seen.add(node_id)
+            if len(unique_results) >= max_results:
+                break
+    logger.debug(f"After deduplication: {len(unique_results)} unique results")
+    return unique_results
+
+
+def identify_target_entity(unique_results: List[Tuple[float, Dict[str, Any]]]) -> Optional[str]:
+    """
+    Identifies target entity from best match for usage queries.
+
+    Args:
+        unique_results: List of unique results
+
+    Returns:
+        Target entity name or None
+    """
+    if not unique_results:
+        return None
+
+    best_match = unique_results[0]
+    node_id = best_match[1]["node"]
+    metadata = best_match[1]["metadata"]
+    logger.debug(f"Using ORIGINAL best match from ChromaDB: {node_id}")
+
+    if metadata.get("kind") == "METHOD":
+        target_entity = metadata.get("label")
+        logger.debug(f"Target method identified: {target_entity}")
+        return target_entity
+    elif metadata.get("kind") == "CLASS":
+        target_entity = metadata.get("label")
+        logger.debug(f"Target class identified: {target_entity}")
+        return target_entity
+    elif "." in node_id:
+        parts = node_id.split(".")
+        for part in reversed(parts):
+            if part and part[0].isupper():
+                logger.debug(f"Target class identified from node_id: {part}")
+                return part
+    return None
+
+
+def expand_usage_results(
+    unique_results: List[Tuple[float, Dict[str, Any]]],
+    collection: Any,
+    target_entity: Optional[str],
+) -> List[Tuple[float, Dict[str, Any]]]:
+    """
+    Expands results with usage nodes.
+
+    Args:
+        unique_results: List of unique results
+        collection: Chroma collection handle
+        target_entity: Target entity name
+
+    Returns:
+        Expanded list with usage nodes
+    """
+    top_nodes = unique_results[:1]
+    if target_entity:
+        usage_nodes = find_usage_nodes(
+            collection, target_entity, max_results=max_usage_nodes_for_context
+        )
+        for score, node_id, doc, metadata in usage_nodes:
+            top_nodes.append((score, {"node": node_id, "metadata": metadata, "code": doc}))
+        logger.debug(f"Added {len(usage_nodes)} usage nodes to results")
+    return top_nodes[:max_top_nodes_for_usage]
+
+
+def expand_definition_neighbors(
+    unique_results: List[Tuple[float, Dict[str, Any]]], collection: Any
+) -> List[Tuple[float, Dict[str, Any]]]:
+    """
+    Expands definition results with neighbors if single object query.
+
+    Args:
+        unique_results: List of unique results
+        collection: Chroma collection handle
+
+    Returns:
+        Expanded list with neighbor nodes
+    """
+    top_nodes = unique_results[: len(unique_results)]
+    if len(top_nodes) != 1:
+        return top_nodes
+
+    current_nodes = top_nodes.copy()
+    added_nodes = {node_data["node"] for _, node_data in top_nodes}
+
+    for node_score, node_data in current_nodes:
+        node_id = node_data["node"]
+        metadata = node_data["metadata"]
+
+        related_entities_str = metadata.get("related_entities", "")
+        try:
+            related_entities = (
+                json.loads(related_entities_str)
+                if isinstance(related_entities_str, str)
+                else related_entities_str
+            )
+        except (json.JSONDecodeError, TypeError):
+            related_entities = []
+
+        neighbors_to_fetch = related_entities[:2]
+
+        if neighbors_to_fetch:
+            try:
+                neighbors = collection.get(
+                    ids=neighbors_to_fetch, include=["metadatas", "documents"]
+                )
+            except Exception as e:
+                logger.warning(f"ChromaDB get failed (likely telemetry): {e}")
+                neighbors = {"ids": [], "metadatas": [], "documents": []}
+
+            for j in range(len(neighbors["ids"])):
+                neighbor_id = neighbors["ids"][j]
+                neighbor_metadata = neighbors["metadatas"][j]
+                neighbor_kind = neighbor_metadata.get("kind", "")
+                neighbor_doc = neighbors["documents"][j] or ""
+                if (
+                    metadata.get("kind") == "CLASS"
+                    and (neighbor_kind == "METHOD" or neighbor_kind == "VARIABLE")
+                    and str(neighbor_id).startswith(f"{node_id}.")
+                    or neighbor_id in added_nodes
+                ):
+                    continue
+                top_nodes.append(
+                    (
+                        node_score,
+                        {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_doc},
+                    )
+                )
+                added_nodes.add(neighbor_id)
+
+    return top_nodes
