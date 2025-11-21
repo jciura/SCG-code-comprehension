@@ -10,6 +10,10 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
+from clients.chroma_client import get_collection
+from graph.general_query import get_general_nodes_context
+from graph.specific_nodes import get_specific_nodes_context
+from graph.top_nodes import get_top_nodes_context
 from src.core.config import (
     CODEBERT_MODEL_NAME,
     MODEL_NAME,
@@ -29,7 +33,8 @@ from src.core.models import (
     SimpleRAGResponse,
 )
 from src.core.prompt import build_prompt, post_process_answer
-from src.graph.similar_node_optimization import similar_node_fast
+
+# from src.graph.similar_node_optimization import similar_node_fast
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -326,153 +331,153 @@ async def ask_code(file_path: str, question: str) -> SimpleRAGResponse:
         raise
 
 
-@app.post("/ask_rag_node", response_model=NodeRAGResponse)
-async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
-    """
-    Handles the `/ask_rag_node` endpoint for intent-aware RAG queries on code nodes.
-
-    Performs user intent classification, retrieves semantically similar nodes,
-    builds a context-aware prompt, queries the LLM, post-processes the response,
-    and evaluates results against ground truth when available.
-    Also manages conversation history persistence and logs detailed performance metrics.
-
-    Args:
-        req (PrompRequest): Request object containing the user's question and optional context.
-
-    Returns:
-        NodeRAGResponse: The model's processed answer, used context, total processing time,
-        and detected question category.
-
-    Raises:
-        HTTPException: If any step in the RAG or LLM pipeline fails (e.g., intent analysis,
-        model call, history load/save, or evaluation).
-    """
-    total_start_time = time.time()
-    try:
-        analyzer = get_intent_analyzer()
-        intent_start_time = time.time()
-        user_intent_analysis = analyzer.enhanced_classify_question(req.question)
-        user_intent = {
-            "primary_intent": user_intent_analysis.primary_intent.value,
-            "requires_examples": user_intent_analysis.requires_examples,
-            "requires_usage_info": user_intent_analysis.requires_usage_info,
-            "requires_implementation_details": user_intent_analysis.requires_implementation_details,
-        }
-        intent_time = time.time() - intent_start_time
-        logger.info(f"User intent analysis: {intent_time:.3f}s - {user_intent}")
-        rag_start_time = time.time()
-        matches, context = await similar_node_fast(req.question, model_name=CODEBERT_MODEL_NAME)
-        rag_time = time.time() - rag_start_time
-        logger.info(f"RAG processing: {rag_time:.3f}s, found {len(matches)} matches")
-        history_start_time = time.time()
-        try:
-            with open(NODE_CONTEXT_HISTORY, "r", encoding="utf-8") as f:
-                history_data = json.load(f)
-            conversation_history.messages.clear()
-            for msg in history_data:
-                if isinstance(msg, dict) and "role" in msg and "content" in msg:
-                    conversation_history.add_message(msg["role"], msg["content"])
-        except FileNotFoundError:
-            logger.info("No conversation history found")
-            conversation_history.messages.clear()
-        except (json.JSONDecodeError, ValidationError) as e:
-            logger.warning(f"Invalid conversation history format: {e}")
-            conversation_history.messages.clear()
-        history_load_time = time.time() - history_start_time
-        logger.info(
-            f"History loaded: {history_load_time:.3f}s, "
-            f"{len(conversation_history.messages)} messages"
-        )
-
-        prompt_start_time = time.time()
-        prompt = build_prompt(
-            question=req.question,
-            context=context,
-            intent=user_intent,
-            conversation_history=conversation_history,
-        )
-        prompt_time = time.time() - prompt_start_time
-        logger.info(f"Intent-aware prompt built: {prompt_time:.3f}s, length: {len(prompt)} chars")
-
-        if logger.level <= logging.DEBUG:
-            logger.debug("Generated prompt:")
-            logger.debug(prompt)
-
-        llm_start_time = time.time()
-        answer = await get_llm_response(prompt)
-        llm_time = time.time() - llm_start_time
-        logger.info(f"LLM response: {llm_time:.3f}s, length: {len(answer)} chars")
-
-        if logger.level <= logging.DEBUG:
-            logger.debug("LLM answer:")
-            logger.debug(answer)
-
-        processed_answer = post_process_answer(answer, user_intent)
-        evaluation_result = await evaluate_if_needed(req.question, processed_answer, context)
-        if evaluation_result:
-            try:
-                eval_log_path = metrics_path
-                os.makedirs(os.path.dirname(eval_log_path), exist_ok=True)
-                with open(eval_log_path, "a", encoding="utf-8") as f:
-                    eval_entry = {
-                        "timestamp": time.time(),
-                        "question": req.question,
-                        "answer": processed_answer,
-                        "question_id": evaluation_result["question_id"],
-                        "category": evaluation_result["category"],
-                        "ragas_score": evaluation_result["metrics"]["ragas"]["ragas_score"],
-                        "full_metrics": evaluation_result["metrics"],
-                    }
-                    f.write(json.dumps(eval_entry, ensure_ascii=False, indent=2) + "\n\n")
-                    logger.warning(f"EVALUATION RESULT: {evaluation_result}")
-            except Exception as e:
-                logger.warning(f"Failed to save evaluation result: {e}")
-        history_save_start_time = time.time()
-        conversation_history.add_message("user", req.question)
-        conversation_history.add_message("assistant", processed_answer)
-
-        try:
-            history_data = [
-                {"role": msg.role, "content": msg.content, "timestamp": msg.timestamp}
-                for msg in conversation_history.messages
-            ]
-
-            with open(NODE_CONTEXT_HISTORY, "w", encoding="utf-8") as f:
-                json.dump(history_data, f, ensure_ascii=False, indent=4)
-
-        except Exception as e:
-            logger.error(f"Failed to save conversation history: {e}")
-
-        history_save_time = time.time() - history_save_start_time
-        logger.info(f"History saved: {history_save_time:.3f}s")
-        total_time = time.time() - total_start_time
-
-        response = NodeRAGResponse(
-            answer=processed_answer,
-            used_context=context,
-            processing_time=total_time,
-            question_category=user_intent_analysis.primary_intent.value,
-        )
-
-        metrics = PerformanceMetrics(
-            endpoint="/ask_rag_node",
-            total_time=total_time,
-            rag_time=rag_time,
-            llm_time=llm_time,
-            history_load_time=history_load_time,
-            history_save_time=history_save_time,
-            context_length=len(context),
-            response_length=len(processed_answer),
-        )
-        log_metrics(metrics)
-        return response
-
-    except Exception as exc:
-        logger.error(f"Error in RAG Node: {str(exc)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error in RAG Node: {str(exc)}",
-        )
+# @app.post("/ask_rag_node", response_model=NodeRAGResponse)
+# async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
+#     """
+#     Handles the `/ask_rag_node` endpoint for intent-aware RAG queries on code nodes.
+#
+#     Performs user intent classification, retrieves semantically similar nodes,
+#     builds a context-aware prompt, queries the LLM, post-processes the response,
+#     and evaluates results against ground truth when available.
+#     Also manages conversation history persistence and logs detailed performance metrics.
+#
+#     Args:
+#         req (PrompRequest): Request object containing the user's question and optional context.
+#
+#     Returns:
+#         NodeRAGResponse: The model's processed answer, used context, total processing time,
+#         and detected question category.
+#
+#     Raises:
+#         HTTPException: If any step in the RAG or LLM pipeline fails (e.g., intent analysis,
+#         model call, history load/save, or evaluation).
+#     """
+#     total_start_time = time.time()
+#     try:
+#         analyzer = get_intent_analyzer()
+#         intent_start_time = time.time()
+#         user_intent_analysis = analyzer.enhanced_classify_question(req.question)
+#         user_intent = {
+#             "primary_intent": user_intent_analysis.primary_intent.value,
+#             "requires_examples": user_intent_analysis.requires_examples,
+#             "requires_usage_info": user_intent_analysis.requires_usage_info,
+#             "requires_implementation_details": user_intent_analysis.requires_implementation_details,
+#         }
+#         intent_time = time.time() - intent_start_time
+#         logger.info(f"User intent analysis: {intent_time:.3f}s - {user_intent}")
+#         rag_start_time = time.time()
+#         matches, context = await similar_node_fast(req.question, model_name=CODEBERT_MODEL_NAME)
+#         rag_time = time.time() - rag_start_time
+#         logger.info(f"RAG processing: {rag_time:.3f}s, found {len(matches)} matches")
+#         history_start_time = time.time()
+#         try:
+#             with open(NODE_CONTEXT_HISTORY, "r", encoding="utf-8") as f:
+#                 history_data = json.load(f)
+#             conversation_history.messages.clear()
+#             for msg in history_data:
+#                 if isinstance(msg, dict) and "role" in msg and "content" in msg:
+#                     conversation_history.add_message(msg["role"], msg["content"])
+#         except FileNotFoundError:
+#             logger.info("No conversation history found")
+#             conversation_history.messages.clear()
+#         except (json.JSONDecodeError, ValidationError) as e:
+#             logger.warning(f"Invalid conversation history format: {e}")
+#             conversation_history.messages.clear()
+#         history_load_time = time.time() - history_start_time
+#         logger.info(
+#             f"History loaded: {history_load_time:.3f}s, "
+#             f"{len(conversation_history.messages)} messages"
+#         )
+#
+#         prompt_start_time = time.time()
+#         prompt = build_prompt(
+#             question=req.question,
+#             context=context,
+#             intent=user_intent,
+#             conversation_history=conversation_history,
+#         )
+#         prompt_time = time.time() - prompt_start_time
+#         logger.info(f"Intent-aware prompt built: {prompt_time:.3f}s, length: {len(prompt)} chars")
+#
+#         if logger.level <= logging.DEBUG:
+#             logger.debug("Generated prompt:")
+#             logger.debug(prompt)
+#
+#         llm_start_time = time.time()
+#         answer = await get_llm_response(prompt)
+#         llm_time = time.time() - llm_start_time
+#         logger.info(f"LLM response: {llm_time:.3f}s, length: {len(answer)} chars")
+#
+#         if logger.level <= logging.DEBUG:
+#             logger.debug("LLM answer:")
+#             logger.debug(answer)
+#
+#         processed_answer = post_process_answer(answer, user_intent)
+#         evaluation_result = await evaluate_if_needed(req.question, processed_answer, context)
+#         if evaluation_result:
+#             try:
+#                 eval_log_path = metrics_path
+#                 os.makedirs(os.path.dirname(eval_log_path), exist_ok=True)
+#                 with open(eval_log_path, "a", encoding="utf-8") as f:
+#                     eval_entry = {
+#                         "timestamp": time.time(),
+#                         "question": req.question,
+#                         "answer": processed_answer,
+#                         "question_id": evaluation_result["question_id"],
+#                         "category": evaluation_result["category"],
+#                         "ragas_score": evaluation_result["metrics"]["ragas"]["ragas_score"],
+#                         "full_metrics": evaluation_result["metrics"],
+#                     }
+#                     f.write(json.dumps(eval_entry, ensure_ascii=False, indent=2) + "\n\n")
+#                     logger.warning(f"EVALUATION RESULT: {evaluation_result}")
+#             except Exception as e:
+#                 logger.warning(f"Failed to save evaluation result: {e}")
+#         history_save_start_time = time.time()
+#         conversation_history.add_message("user", req.question)
+#         conversation_history.add_message("assistant", processed_answer)
+#
+#         try:
+#             history_data = [
+#                 {"role": msg.role, "content": msg.content, "timestamp": msg.timestamp}
+#                 for msg in conversation_history.messages
+#             ]
+#
+#             with open(NODE_CONTEXT_HISTORY, "w", encoding="utf-8") as f:
+#                 json.dump(history_data, f, ensure_ascii=False, indent=4)
+#
+#         except Exception as e:
+#             logger.error(f"Failed to save conversation history: {e}")
+#
+#         history_save_time = time.time() - history_save_start_time
+#         logger.info(f"History saved: {history_save_time:.3f}s")
+#         total_time = time.time() - total_start_time
+#
+#         response = NodeRAGResponse(
+#             answer=processed_answer,
+#             used_context=context,
+#             processing_time=total_time,
+#             question_category=user_intent_analysis.primary_intent.value,
+#         )
+#
+#         metrics = PerformanceMetrics(
+#             endpoint="/ask_rag_node",
+#             total_time=total_time,
+#             rag_time=rag_time,
+#             llm_time=llm_time,
+#             history_load_time=history_load_time,
+#             history_save_time=history_save_time,
+#             context_length=len(context),
+#             response_length=len(processed_answer),
+#         )
+#         log_metrics(metrics)
+#         return response
+#
+#     except Exception as exc:
+#         logger.error(f"Error in RAG Node: {str(exc)}", exc_info=True)
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=f"Error in RAG Node: {str(exc)}",
+#         )
 
 
 class AskRequest(BaseModel):
@@ -501,16 +506,31 @@ class AskResponse(BaseModel):
     matches: int = 0
 
 
-@app.post("/ask_junie")
-async def ask_junie(req: AskRequest):
+@app.post("/ask_specific_nodes")
+async def ask_specific_nodes(req: AskRequest):
+    return await build_context(req.question, get_specific_nodes_context)
+
+
+@app.post("/ask_top_nodes")
+async def ask_top_nodes(req: AskRequest):
+    return await build_context(req.question, get_top_nodes_context)
+
+
+@app.post("/ask_general_question")
+async def ask_general_question(req: AskRequest):
+    return await build_context(req.question, get_general_nodes_context)
+
+
+async def build_context(question: str, node_func):
     """
-    Handles the `/ask_junie` endpoint for quick RAG-style context retrieval.
+    Handles the all the endpoints for quick RAG-style context retrieval.
 
     Uses a similarity model to find nodes relevant to the given question,
     returning the matched context and number of matches.
 
     Args:
-        req (AskRequest): Request containing the user's question.
+        question (str): User question
+        node_func (function): Function used to retrieve nodes relevant to the given question
 
     Returns:
         dict: A dictionary with the fields:
@@ -518,30 +538,54 @@ async def ask_junie(req: AskRequest):
             - context (str): Retrieved context or error message
             - matches (int): Number of matching nodes found
     """
-    logger.info(f"Received question: {req.question}")
+    logger.info(f"Received question: {question}")
 
     try:
         analyzer = get_intent_analyzer()
         intent_start_time = time.time()
-        user_intent_analysis = analyzer.enhanced_classify_question(req.question)
+        user_intent_analysis = analyzer.enhanced_classify_question(question)
         user_intent = {
             "primary_intent": user_intent_analysis.primary_intent.value,
             "requires_examples": user_intent_analysis.requires_examples,
             "requires_usage_info": user_intent_analysis.requires_usage_info,
             "requires_implementation_details": user_intent_analysis.requires_implementation_details,
         }
+
         intent_time = time.time() - intent_start_time
         logger.info(f"User intent analysis: {intent_time:.3f}s - {user_intent}")
+
         rag_start_time = time.time()
+        logger.info(f"Func: {node_func}")
         matches, context = await asyncio.wait_for(
-            similar_node_fast(req.question, model_name=CODEBERT_MODEL_NAME), timeout=30.0
+            node_func(question, user_intent_analysis, model_name=CODEBERT_MODEL_NAME,
+                      collection=get_collection("scg_embeddings")), timeout=60.0
         )
         rag_time = time.time() - rag_start_time
         logger.info(f"RAG processing: {rag_time:.3f}s, found {len(matches)} matches")
 
+        history_start_time = time.time()
+        try:
+            with open(NODE_CONTEXT_HISTORY, "r", encoding="utf-8") as f:
+                history_data = json.load(f)
+            conversation_history.messages.clear()
+            for msg in history_data:
+                if isinstance(msg, dict) and "role" in msg and "content" in msg:
+                    conversation_history.add_message(msg["role"], msg["content"])
+        except FileNotFoundError:
+            logger.info("No conversation history found")
+            conversation_history.messages.clear()
+        except (json.JSONDecodeError, ValidationError) as e:
+            logger.warning(f"Invalid conversation history format: {e}")
+            conversation_history.messages.clear()
+        history_load_time = time.time() - history_start_time
+        logger.info(
+            f"History loaded: {history_load_time:.3f}s, "
+            f"{len(conversation_history.messages)} messages"
+        )
+
         prompt_start_time = time.time()
         prompt = build_prompt(
-            question=req.question,
+            question=question,
             context=context,
             intent=user_intent,
             conversation_history=conversation_history,
@@ -556,7 +600,9 @@ async def ask_junie(req: AskRequest):
         if not isinstance(context, str):
             context = str(context)
 
-        return {"status": "success", "context": context, "matches": len(matches) if matches else 0}
+        logger.info(f"Context: {context}")
+
+        return {"status": "success", "context": context, "prompt": prompt, "matches": len(matches) if matches else 0}
 
     except Exception as e:
         return {"status": "error", "context": f"Error: {str(e)}", "matches": 0}

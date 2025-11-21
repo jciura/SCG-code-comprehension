@@ -1,8 +1,10 @@
 import json
-from typing import Any, Dict, List
+import time
+from typing import Any, Dict, List, Coroutine
 
 from loguru import logger
 
+from core.models import IntentAnalysis
 from src.clients.llm_client import call_llm
 
 
@@ -34,7 +36,8 @@ def get_metric_value(node: Dict[str, Any], metric: str) -> float:
         return float(node.get(metric, 0.0))
 
 
-async def find_top_nodes(question: str, collection: Any) -> List[Dict[str, Any]]:
+async def get_top_nodes_context(question: str, analysis: IntentAnalysis, model_name: str, collection: Any) -> tuple[
+    list[dict[str, float | Any]], str]:
     """
     Finds top nodes based on LLM-guided kind/metric selection.
 
@@ -64,7 +67,7 @@ async def find_top_nodes(question: str, collection: Any) -> List[Dict[str, Any]]
     
     No comments, only JSON.
 """
-
+    start_time = time.time()
     analysis = await call_llm(classification_prompt)
     logger.debug(f"Top nodes analysis: {analysis}")
 
@@ -97,4 +100,12 @@ async def find_top_nodes(question: str, collection: Any) -> List[Dict[str, Any]]
         reverse=(order.lower() == "desc"),
     )
 
-    return filtered_sorted_nodes[:limit]
+    context = " ".join(
+        f"{node.get('metadata', {}).get('label', '')} - {node.get('metric_value'):.2f}"
+        for node in filtered_sorted_nodes[:limit]
+    )
+    logger.debug(f"Top query context: {context}")
+    end_time = time.time()
+    elapsed_ms = (end_time - start_time) * 1000
+    logger.debug(f"Completed in: {elapsed_ms:.1f}ms")
+    return filtered_sorted_nodes[:limit], context or "<NO CONTEXT FOUND>"
