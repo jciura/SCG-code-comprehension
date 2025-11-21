@@ -1,48 +1,60 @@
 import json
 import os
 import re
+from typing import Any, Dict, List, Tuple
+
 from loguru import logger
-from typing import List, Tuple, Dict, Any
 from sentence_transformers import SentenceTransformer
-from src.clients.chroma_client import get_chroma_client, get_collection, default_collection_name
+
+from src.clients.chroma_client import (
+    default_collection_name,
+    get_chroma_client,
+    get_collection,
+)
+from src.clients.llm_client import call_llm
+from src.core.config import (
+    CODEBERT_MODEL_NAME,
+    default_chroma_path,
+    default_classifier_embeddings_path,
+    default_classifier_model,
+)
+from src.core.intent_analyzer import classify_question, get_intent_analyzer
 from src.graph.generate_embeddings_graph import generate_embeddings_graph
-from src.core.intent_analyzer import get_intent_analyzer, classify_question
-from src.core.config import default_classifier_embeddings_path, default_chroma_path, default_classifier_model, CODEBERT_MODEL_NAME
 
 default_top_k = 7
 
 
 def load_classifier_embeddings(path: str = None) -> dict:
     """
-       Loads serialized classifier embeddings from disk.
+    Loads serialized classifier embeddings from disk.
 
-       Args:
-           path (str, optional): Path to the embeddings JSON file.
-               Defaults to `default_classifier_embeddings_path`.
+    Args:
+        path (str, optional): Path to the embeddings JSON file.
+            Defaults to `default_classifier_embeddings_path`.
 
-       Returns:
-           dict: Parsed embeddings payload.
+    Returns:
+        dict: Parsed embeddings payload.
 
-       Raises:
-           FileNotFoundError: If the embeddings file does not exist.
-       """
+    Raises:
+        FileNotFoundError: If the embeddings file does not exist.
+    """
     embeddings_path = path or default_classifier_embeddings_path
     if not os.path.exists(embeddings_path):
-        raise FileNotFoundError(f"Classifier embeddings not found")
+        raise FileNotFoundError("Classifier embeddings not found")
     with open(embeddings_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def get_classifier_model(model_name: str = None) -> SentenceTransformer:
     """
-        Initializes and returns the sentence-transformer classifier model.
+    Initializes and returns the sentence-transformer classifier model.
 
-        Args:
-            model_name (str, optional): Hugging Face model name.
-                Defaults to `default_classifier_model`.
+    Args:
+        model_name (str, optional): Hugging Face model name.
+            Defaults to `default_classifier_model`.
 
-        Returns:
-            SentenceTransformer: Loaded sentence-transformer model.
+    Returns:
+        SentenceTransformer: Loaded sentence-transformer model.
     """
     model_name = model_name or default_classifier_model
     return SentenceTransformer(model_name)
@@ -59,153 +71,109 @@ except Exception as e:
 chroma_client = get_chroma_client(storage_path=default_chroma_path)
 
 
-def extract_key_value_pairs_simple(question: str) -> List[Tuple[str, str]]:
+async def extract_key_value_pairs_simple(question: str) -> List[Tuple[str, str]]:
     """
-        Extracts (key, value) pairs from a question.
+    Extracts (key, value) pairs from a question using LLM.
 
-        Looks for signals like `class`, `method`, Java-style names, camelCase tokens,
-        method prefixes (find/get/set/...), and compound `Class.method` patterns.
+    Args:
+        question (str): User question in natural language.
 
-        Args:
-            question (str): User question in natural language.
-
-        Returns:
-            List[Tuple[str, str]]: Unique (key, value) pairs such as
-            ('class', 'orderservice') or ('method', 'findById').
-        """
-    pairs = []
+    Returns:
+        List[Tuple[str, str]]: Unique (key, value) pairs such as
+        ('class', 'orderservice') or ('method', 'findById').
+    """
     question_lower = question.lower()
-    words = question_lower.split()
-    key_terms = {"class", "method", "function", "variable", "property"}
-    for i, word in enumerate(words):
-        if word in key_terms:
-            if i + 1 < len(words):
-                next_word = words[i + 1]
-                clean_name = next_word.strip("'\"().,!?")
-                if clean_name and len(clean_name) > 1:
-                    pairs.append((word, clean_name))
-            elif i > 0:
-                prev_word = words[i - 1]
-                clean_name = prev_word.strip("'\"().,!?")
-                if clean_name and len(clean_name) > 1:
-                    pairs.append((word, clean_name))
-    java_class_pattern = r'\b(\w+(?:service|controller|repository|dto|entity|exception))\b'
-    java_matches = re.findall(java_class_pattern, question_lower)
-    for match in java_matches:
-        pairs.append(('class', match))
-    for word in re.findall(r'\b[A-Z][a-zA-Z]+\b', question):
-        word_lower = word.lower()
-        if (word_lower.endswith(('service', 'controller', 'repository', 'dto', 'entity', 'exception')) or
-                len(word) > 8):
-            pairs.append(('class', word_lower))
-    camel_case_pattern = r'\b([a-z]+[A-Z][a-zA-Z0-9]*)\b'
-    camel_matches = re.findall(camel_case_pattern, question)
-    for match in camel_matches:
-        if len(match) > 10:
-            pairs.append(('method', match.lower()))
-            logger.debug(f"Extracted camelCase method: {match}")
-        elif len(match) > 6:
-            pairs.append(('method', match.lower()))
-    method_with_parens = re.findall(r'\b(\w+)\s*\(\s*\)', question_lower)
-    for method_name in method_with_parens:
-        pairs.append(('method', method_name))
-        logger.debug(f"Extracted method with parens: {method_name}")
-    method_prefixes = ['find', 'get', 'set', 'create', 'update', 'delete', 'add', 'remove',
-                       'enroll', 'unenroll', 'save', 'fetch', 'load', 'check', 'validate']
-    for word in words:
-        clean_word = word.strip("'\"().,!?")
-        for prefix in method_prefixes:
-            if clean_word.startswith(prefix) and len(clean_word) > len(prefix) + 2:
-                pairs.append(('method', clean_word))
-                logger.debug(f"Extracted method with prefix: {clean_word}")
-                break
-    pattern = r'(\w+)\s+method\s+in\s+(\w+)\s+class'
-    matches = re.findall(pattern, question_lower)
-    for method, class_name in matches:
-        pairs.append(('method', method))
-        pairs.append(('class', class_name))
-    compound_pattern = r'([A-Z][a-zA-Z]+)\.([a-z][a-zA-Z]+)'
-    compound_matches = re.findall(compound_pattern, question)
-    for class_name, method_name in compound_matches:
-        pairs.append(('class', class_name.lower()))
-        pairs.append(('method', method_name.lower()))
-        logger.debug(f"Extracted compound: {class_name}.{method_name}")
-    long_words = re.findall(r'\b([a-zA-Z]{15,})\b', question)
-    for word in long_words:
-        if any(c.isupper() for c in word[1:]):
-            if word[0].isupper():
-                pairs.append(('class', word.lower()))
-            else:
-                pairs.append(('method', word.lower()))
-            logger.debug(f"Extracted long word: {word}")
-    seen = set()
-    unique_pairs = []
-    for pair in pairs:
-        if pair not in seen:
-            unique_pairs.append(pair)
-            seen.add(pair)
-    if unique_pairs:
-        logger.info(f"Extracted {len(unique_pairs)} unique pairs from question")
-        for key, value in unique_pairs[:5]:
-            logger.debug(f"  :{key}: {value}")
-    return unique_pairs
+    classification_prompt = f"""
+    User question: "{question_lower}"
+    Your task:
+    1. Extract pairs of (Node Type, Node Name) from the question
+    2. Node Type must be one of: ["CLASS", "METHOD", "VARIABLE", "CONSTRUCTOR", "VALUE"]
+    3. Return ONLY a valid JSON array of objects with keys "type" and "name"
+
+    Example output format:
+    [
+      {{"type": "CLASS", "name": "User"}},
+      {{"type": "METHOD", "name": "findById"}}
+    ]
+    - Return ONLY valid JSON, no comments, no explanations, no markdown
+    - Always return a JSON array, even if there's only 1 element
+    - If no pairs found, return empty array: []
+
+    Return your JSON now
+    """
+
+    answer = await call_llm(classification_prompt)
+    logger.debug(f"LLM extracted pairs: {answer}")
+    try:
+        data = json.loads(answer)
+        logger.debug(f"Data: {data}")
+        pairs = [(item["type"].upper(), item["name"]) for item in data]
+    except Exception as e:
+        logger.error(f"Failed to parse json asner: {e}")
+        pairs = []
+    return pairs
 
 
 def preprocess_question(q: str) -> str:
     """
-        Normalizes a question string to aid lightweight classification.
+    Normalizes a question string to aid lightweight classification.
 
-        Replaces concrete mentions like "method foo" with generic tokens
-        ("method", "function", "class", "variable"), collapses whitespace,
-        and lowercases the text.
+    Replaces concrete mentions like "method foo" with generic tokens
+    ("method", "function", "class", "variable"), collapses whitespace,
+    and lowercases the text.
 
-        Args:
-            q (str): Raw question text.
+    Args:
+        q (str): Raw question text.
 
-        Returns:
-            str: Normalized, lowercased question string.
+    Returns:
+        str: Normalized, lowercased question string.
     """
-    q = re.sub(r'\bmethod\s+\w+\b', 'method', q, flags=re.IGNORECASE)
-    q = re.sub(r'\bfunction\s+\w+\b', 'function', q, flags=re.IGNORECASE)
-    q = re.sub(r'\bclass\s+\w+\b', 'class', q, flags=re.IGNORECASE)
-    q = re.sub(r'\bvariable\s+\w+\b', 'variable', q, flags=re.IGNORECASE)
-    q = re.sub(r'\s+', ' ', q).strip()
+    q = re.sub(r"\bmethod\s+\w+\b", "method", q, flags=re.IGNORECASE)
+    q = re.sub(r"\bfunction\s+\w+\b", "function", q, flags=re.IGNORECASE)
+    q = re.sub(r"\bclass\s+\w+\b", "class", q, flags=re.IGNORECASE)
+    q = re.sub(r"\bvariable\s+\w+\b", "variable", q, flags=re.IGNORECASE)
+    q = re.sub(r"\s+", " ", q).strip()
     return q.lower()
 
 
-def similar_node(question: str, model_name: str = CODEBERT_MODEL_NAME, collection_name: str = default_collection_name, top_k: int = default_top_k) -> Tuple[List[Tuple[float, Dict[str, Any]]], str]:
+def similar_node(
+    question: str,
+    model_name: str = CODEBERT_MODEL_NAME,
+    collection_name: str = default_collection_name,
+    top_k: int = default_top_k,
+) -> Tuple[List[Tuple[float, Dict[str, Any]]], str]:
     """
-        Retrieves the most similar code nodes and builds a context string.
+    Retrieves the most similar code nodes and builds a context string.
 
-        1) Extracts (key, value) pairs from the question.
-        2) Generates embeddings (CodeBERT) for the query variants.
-        3) Queries a Chroma collection for top-k similar nodes per query.
-        4) Expands results with related neighbors (importance-ranked) based on
-           stored metadata and detected intent category.
-        5) Returns unique top nodes and a concatenated textual context.
+    1) Extracts (key, value) pairs from the question.
+    2) Generates embeddings (CodeBERT) for the query variants.
+    3) Queries a Chroma collection for top-k similar nodes per query.
+    4) Expands results with related neighbors (importance-ranked) based on
+       stored metadata and detected intent category.
+    5) Returns unique top nodes and a concatenated textual context.
 
-        Args:
-            question (str): User question to search for.
-            model_name (str, optional): Embedding model name. Defaults to `CODEBERT_MODEL_NAME`.
-            collection_name (str, optional): Chroma collection to query.
-                Defaults to `default_collection_name`.
-            top_k (int, optional): Number of results to retrieve per query embedding.
-                Defaults to `default_top_k`.
+    Args:
+        question (str): User question to search for.
+        model_name (str, optional): Embedding model name. Defaults to `CODEBERT_MODEL_NAME`.
+        collection_name (str, optional): Chroma collection to query.
+            Defaults to `default_collection_name`.
+        top_k (int, optional): Number of results to retrieve per query embedding.
+            Defaults to `default_top_k`.
 
-        Returns:
-            Tuple[List[Tuple[float, Dict[str, Any]]], str]:
-                - List of (score, node) tuples sorted by similarity (unique nodes).
-                - Context string composed of code snippets (or fallback text).
+    Returns:
+        Tuple[List[Tuple[float, Dict[str, Any]]], str]:
+            - List of (score, node) tuples sorted by similarity (unique nodes).
+            - Context string composed of code snippets (or fallback text).
 
-        Notes:
-            - Similarity score is computed as `1 - distance` from Chroma results.
-            - When category is "general" and no hits are found, falls back to
-              top documents by importance.
+    Notes:
+        - Similarity score is computed as `1 - distance` from Chroma results.
+        - When category is "general" and no hits are found, falls back to
+          top documents by importance.
 
-        Raises:
-            This function handles most exceptions internally (logging warnings/errors)
-            and returns best-effort results. It does not raise on Chroma/query errors.
-        """
+    Raises:
+        This function handles most exceptions internally (logging warnings/errors)
+        and returns best-effort results. It does not raise on Chroma/query errors.
+    """
     collection = get_collection("scg_embeddings")
     pairs = extract_key_value_pairs_simple(question)
     embeddings_input = []
@@ -220,17 +188,14 @@ def similar_node(question: str, model_name: str = CODEBERT_MODEL_NAME, collectio
             query_result = collection.query(
                 query_embeddings=[query_emb.tolist()],
                 n_results=top_k,
-                include=["embeddings", "metadatas", "documents", "distances"])
+                include=["embeddings", "metadatas", "documents", "distances"],
+            )
             for i in range(len(query_result["ids"][0])):
                 score = 1 - query_result["distances"][0][i]
                 node_id = query_result["ids"][0][i]
                 metadata = query_result["metadatas"][0][i]
                 code = query_result["documents"][0][i]
-                results.append((score, {
-                    "node": node_id,
-                    "metadata": metadata,
-                    "code": code
-                }))
+                results.append((score, {"node": node_id, "metadata": metadata, "code": code}))
         except Exception as e:
             logger.error(f"Error querying collection: {e}")
 
@@ -242,7 +207,7 @@ def similar_node(question: str, model_name: str = CODEBERT_MODEL_NAME, collectio
             seen.add(node["node"])
         if len(unique_results) >= len(embeddings_input) * top_k:
             break
-    top_nodes = unique_results[:len(embeddings_input)]
+    top_nodes = unique_results[: len(embeddings_input)]
     top_k_codes = [node["code"] for _, node in top_nodes if node["code"]]
     try:
         analyzer = get_intent_analyzer()
@@ -259,7 +224,7 @@ def similar_node(question: str, model_name: str = CODEBERT_MODEL_NAME, collectio
         "implementation": 3,
         "testing": 4,
         "exception": 3,
-        "top": 1
+        "top": 1,
     }.get(category, 2)
     logger.debug(f"Category: {category}")
 
@@ -277,8 +242,7 @@ def similar_node(question: str, model_name: str = CODEBERT_MODEL_NAME, collectio
     if all_neighbors_ids:
         try:
             neighbor_nodes = collection.get(
-                ids=list(all_neighbors_ids),
-                include=["documents", "metadatas"]
+                ids=list(all_neighbors_ids), include=["documents", "metadatas"]
             )
 
             neighbors_with_scores = []
@@ -313,7 +277,11 @@ def similar_node(question: str, model_name: str = CODEBERT_MODEL_NAME, collectio
                 doc = all_nodes["documents"][i]
                 meta = all_nodes["metadatas"][i]
                 nid = all_nodes["ids"][i]
-                score = meta.get("importance", {}).get("combined", 0.0) if isinstance(meta.get("importance"), dict) else meta.get("combined", 0.0)
+                score = (
+                    meta.get("importance", {}).get("combined", 0.0)
+                    if isinstance(meta.get("importance"), dict)
+                    else meta.get("combined", 0.0)
+                )
                 if doc:
                     importance_scores.append((score, nid, doc))
             sorted_by_importance = sorted(importance_scores, key=lambda x: -x[0])

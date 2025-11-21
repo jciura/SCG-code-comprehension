@@ -1,33 +1,23 @@
-from typing import Dict, Any
-from src.core.intent_analyzer import get_intent_analyzer, IntentCategory
-from src.core.models import ConversationHistory
+from typing import Any, Dict
+
 from loguru import logger
 
+from src.core.intent_analyzer import IntentCategory, get_intent_analyzer
+from src.core.models import ConversationHistory
 
-def build_prompt(question: str, context: str, intent: Dict[str, Any], conversation_history: ConversationHistory) -> str:
+
+def get_task_instructions(intent_category: IntentCategory) -> str:
     """
-        Builds an intent-aware prompt from code context and conversation.
+    Returns task-specific instructions based on intent category.
 
-        Selects task instructions by `IntentCategory`, truncates context to analyzer
-        limits, optionally injects short history, and formats the final prompt. For
-        `TOP` intent, returns a names-only instruction format.
+    Args:
+        intent_category: The detected intent category
 
-        Args:
-            question (str): User question.
-            context (str): Code/context to analyze (may be truncated).
-            intent (Dict[str, Any]): Intent payload with at least "primary_intent".
-            conversation_history (ConversationHistory): Rolling chat history.
-
-        Returns:
-            str: Fully formatted prompt string ready for the LLM.
+    Returns:
+        str: Task instructions for the LLM
     """
-    primary_intent = intent["primary_intent"]
-    try:
-        intent_category = IntentCategory(primary_intent)
-    except ValueError:
-        intent_category = IntentCategory.GENERAL
     if intent_category == IntentCategory.USAGE:
-        task = """Find where the requested code element is used in the codebase.
+        return """Find where the requested code element is used in the codebase.
         Your task is to: identify all places where this element is called or referenced.
 
         Rules:
@@ -36,7 +26,8 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
         3. If you see a controller using it, give the exact @Mapping annotation
         4. Do not invent test names, method names, or class names
         5. Do not say "there are tests" if you don't see the exact test code
-        6. If the element is not used anywhere in the code provided, say: "The code provided does not show where this method is used."
+        6. If the element is not used anywhere in the code provided, say:
+            "The code provided does not show where this method is used."
         7. Do not add line numbers (they are not in the code) 
         8. Do not add "at line X"
 
@@ -49,8 +40,8 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
         Never make up test names or usage locations. Base everything on the code below."""
 
     elif intent_category == IntentCategory.DEFINITION:
-
-        task = """Describe the code element in a clear, natural way based strictly on the provided code.
+        return """Describe the code element in a clear, natural way based strictly 
+                    on the provided code.
 
         Rules:
         1) Base your answer only on what is visible in the code below
@@ -58,36 +49,37 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
         3) Do not explain what annotations/frameworks do
         4) Do not add knowledge not in the code
         5) Do not mention @Table if you don't see @Table in the code
-    
-    
+
+
         Answer structure:
-    
+
         Opening (1-2 sentences):
         - Identify what kind of element this is (class, interface, method, enum, etc.)
         - State its main purpose or what it represents
-    
+
         Main content (adapt based on element type):
-    
+
         For CLASSES/INTERFACES:
         - List main fields with types (e.g., "contains three fields: id, name, and items")
         - Mention relationships (e.g., "has a many-to-many relationship with X")
-        - Group methods logically: "provides constructors", "has getters/setters", "includes validation methods"
-    
+        - Group methods logically: "provides constructors", "has getters/setters", 
+            "includes validation methods"
+
         For METHODS:
         - State what parameters it takes
         - Describe what it does (based on visible code)
         - Mention what it returns
         - Note any exceptions it throws
-    
+
         For ENUMS:
         - List the enum values
         - Mention any fields or methods if present
-    
+
         For ANNOTATIONS/INTERFACES:
         - State its purpose
         - List methods/fields if applicable
-    
-    
+
+
         Style:
         -Group similar items ("has getters and setters for all fields")
         - Use natural language
@@ -97,19 +89,19 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
         - Don't explain what frameworks/annotations do
         - Don't add bullet-point lists for simple things
         - Don't copy-paste entire signatures
-    
-    
+
+
         Adapt to the code:
         - If code shows only fields, focus on fields
         - If code shows only method signatures, describe methods
         - If code shows full implementation, describe behavior
         - If element is simple, keep answer short
         - If element is complex, add more detail
-    
+
         Base your answer only on the code below."""
 
     elif intent_category == IntentCategory.IMPLEMENTATION:
-        task = """Explain how the code works internally, using only what is visible below.
+        return """Explain how the code works internally, using only what is visible below.
 
         Rules:
         1) Describe only what the code shows, no assumptions, no theory.
@@ -119,7 +111,8 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
         Output format:
         - Responsibilities: one short paragraph summarizing what the code does (only from code).
         - Data flow: step-by-step of how inputs become outputs (variables/methods named exactly).
-        - Key methods and logic: for each important method, list the main steps, conditions, and returned values (exact syntax where helpful).
+        - Key methods and logic: for each important method, list the main steps, conditions, 
+            and returned values (exact syntax where helpful).
 
         Avoid:
         - Any “why” or best practices.
@@ -127,9 +120,8 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
 
         Answer only based on the provided code."""
 
-
     elif intent_category == IntentCategory.TESTING:
-        task = """Describe the testing code strictly based on what is visible below.
+        return """Describe the testing code strictly based on what is visible below.
 
         Rules:
         1) Mention only test classes and methods present in the code.
@@ -145,12 +137,12 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
 
         Write a clear, factual summary, no explanations or suggestions."""
 
-
     elif intent_category == IntentCategory.EXCEPTION:
-        task = """Identify all exception handling visible in the provided code.
+        return """Identify all exception handling visible in the provided code.
 
         Rules:
-        1) Mention only exceptions that appear explicitly in the code (try-catch, throws, or class references).
+        1) Mention only exceptions that appear explicitly in the code 
+            (try-catch, throws, or class references).
         2) Use exact exception class names and method names as written.
         3) Do not explain what the exceptions mean or how they work.
         4) Base everything strictly on what is visible in the code.
@@ -162,14 +154,14 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
 
         If no exceptions appear in the code, simply state that none are present."""
 
-
     elif intent_category == IntentCategory.TOP:
-        task = """List the most relevant code elements found in the provided context.
+        return """List the most relevant code elements found in the provided context.
 
         Rules:
         1) Return only names of classes or methods as they appear in the code.
         2) Keep the same order as in the context.
-        3) Number each item (e.g., 1., 2., 3.) to each item add parameter attached to them in context.
+        3) Number each item (e.g., 1., 2., 3.) to each item add parameter 
+            attached to them in context.
         4) Do not add explanations, summaries, or descriptions.
         5) If no names are visible, return: "<NO NAMES FOUND>".
         6) Skip: Test classes, Exceptions, DTOs, Configs" 
@@ -177,7 +169,7 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
         """
 
     else:
-        task = """Analyze the provided code and describe what is visible in it.
+        return """Analyze the provided code and describe what is visible in it.
 
         Rules:
         1) Base your answer only on the code below, no assumptions or external knowledge.
@@ -193,42 +185,41 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
 
         Keep the tone factual and concise, describe only what you see."""
 
+
+def build_prompt(
+    question: str, context: str, intent: Dict[str, Any], conversation_history: ConversationHistory
+) -> str:
+    """
+    Builds an intent-aware prompt from code context and conversation.
+
+    Args:
+        question: User question
+        context: Code/context to analyze (may be truncated)
+        intent: Intent payload with at least "primary_intent"
+        conversation_history: Rolling chat history
+
+    Returns:
+        str: Fully formatted prompt string ready for the LLM
+    """
+    primary_intent = intent["primary_intent"]
+    try:
+        intent_category = IntentCategory(primary_intent)
+    except ValueError:
+        intent_category = IntentCategory.GENERAL
+
+    task = get_task_instructions(intent_category)
     analyzer = get_intent_analyzer()
     limits = analyzer.get_context_limits(intent_category)
     max_context_chars = limits["max_context_chars"]
-
     if intent_category == IntentCategory.TOP:
-        return "\n".join([
-            f"INSTRUCTIONS: {task}",
-            f"USER QUESTION: {question}",
-            f"CONTEXT NAMES: {context.strip() or '<NO NAMES FOUND>'}",
-        ])
-
-    if len(context) > max_context_chars:
-        if '##' in context:
-            sections = context.split('\n\n##')
-            truncated = []
-            current_length = 0
-            for i, section in enumerate(sections):
-                if i == 0:
-                    section_text = section
-                else:
-                    section_text = '##' + section
-                if current_length + len(section_text) + 2 <= max_context_chars:
-                    truncated.append(section_text)
-                    current_length += len(section_text) + 2
-                else:
-                    break
-            if truncated:
-                context = '\n\n'.join(truncated)
-                if len(truncated) < len(sections):
-                    context += f"\n\n... [{len(sections) - len(truncated)} sections omitted]"
-            else:
-                context = context[:max_context_chars] + "\n... [truncated]"
-        else:
-            context = context[:max_context_chars] + "\n... [truncated]"
-
-
+        return "\n".join(
+            [
+                f"INSTRUCTIONS: {task}",
+                f"USER QUESTION: {question}",
+                f"CONTEXT NAMES: {context.strip() or '<NO NAMES FOUND>'}",
+            ]
+        )
+    context = _truncate_context(context, max_context_chars)
     prompt_parts = [
         f"INSTRUCTIONS: {task}",
         "",
@@ -239,7 +230,6 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
         "",
         "YOUR ANSWER (extract facts from code above):",
     ]
-
     if intent_category not in [IntentCategory.EXCEPTION, IntentCategory.TESTING]:
         history_context = conversation_history.get_conversation_context()
         if history_context and len(history_context) < 500:
@@ -247,7 +237,6 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
             prompt_parts.insert(-2, "")
 
     final_prompt = "\n".join(prompt_parts)
-
     logger.debug(f"Context length: {len(context)} chars")
     logger.debug(f"Has ## headers: {context.count('##')} sections")
     logger.debug(f"Final prompt length: {len(final_prompt)} chars")
@@ -255,19 +244,56 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
     return final_prompt
 
 
+def _truncate_context(context: str, max_chars: int) -> str:
+    """
+    Truncates context to maximum character limit while preserving section structure.
+
+    Args:
+        context: The context string to truncate
+        max_chars: Maximum allowed characters
+
+    Returns:
+        str: Truncated context
+    """
+    if len(context) <= max_chars:
+        return context
+
+    if "##" in context:
+        sections = context.split("\n\n##")
+        truncated = []
+        current_length = 0
+
+        for i, section in enumerate(sections):
+            section_text = section if i == 0 else "##" + section
+
+            if current_length + len(section_text) + 2 <= max_chars:
+                truncated.append(section_text)
+                current_length += len(section_text) + 2
+            else:
+                break
+
+        if truncated:
+            result = "\n\n".join(truncated)
+            if len(truncated) < len(sections):
+                result += f"\n\n... [{len(sections) - len(truncated)} sections omitted]"
+            return result
+
+    return context[:max_chars] + "\n... [truncated]"
+
+
 def post_process_answer(answer: str, intent: Dict[str, Any]) -> str:
     """
-        Post-processes the LLM answer.
+    Post-processes the LLM answer.
 
-        Trims whitespace and, if the answer is very short, appends a gentle note
-        indicating limited detail found in the provided code.
+    Trims whitespace and, if the answer is very short, appends a gentle note
+    indicating limited detail found in the provided code.
 
-        Args:
-            answer (str): Raw LLM answer.
-            intent (Dict[str, Any]): Intent payload (reserved for future tweaks).
+    Args:
+        answer (str): Raw LLM answer.
+        intent (Dict[str, Any]): Intent payload (reserved for future tweaks).
 
-        Returns:
-            str: Cleaned (and possibly augmented) answer text.
+    Returns:
+        str: Cleaned (and possibly augmented) answer text.
     """
     processed_answer = answer.strip()
     if len(processed_answer) < 30:

@@ -8,3 +8,10 @@ projects/rich
 data/embeddings/chroma_storage/
 data/embeddings/node_context_history.json
 src/logs/metrics_log.jsonl
+*.pyo
+.uv/
+uv.lock
+.ruff_cache/
+.pre-commit/
+.pre-commit-cache/
+inzynierka_pro1.egg-info/

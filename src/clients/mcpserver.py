@@ -1,6 +1,6 @@
 import httpx
-from mcp.server.fastmcp import FastMCP
 from loguru import logger
+from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("junie-context")
 
@@ -8,17 +8,17 @@ mcp = FastMCP("junie-context")
 @mcp.tool()
 async def ask_junie(question: str) -> str:
     """
-        Sends a question to the Junie RAG API and returns its contextual response.
+    Sends a question to the Junie RAG API and returns its contextual response.
 
-        Forwards the question to the configured Junie service URL and extracts the
-        `context` field from the JSON response. Returns any exception message as
-        text if the request fails.
+    Forwards the question to the configured Junie service URL and extracts the
+    `context` field from the JSON response. Returns any exception message as
+    text if the request fails.
 
-        Args:
-            question (str): The user question to send to the Junie backend.
+    Args:
+        question (str): The user question to send to the Junie backend.
 
-        Returns:
-            str: The retrieved context string or an error message if the call fails.
+    Returns:
+        str: The retrieved context string or an error message if the call fails.
     """
     logger.info("GOT QUESTION: {}", question)
     try:

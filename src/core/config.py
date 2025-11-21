@@ -10,9 +10,9 @@ NODE_CONTEXT_HISTORY = "data/embeddings/node_context_history.json"
 CODEBERT_MODEL_NAME = "microsoft/codebert-base"
 METRICS = "src/logs/metrics_log.json"
 JUNIE_URL = "http://127.0.0.1:8000/ask_junie"
-partition ="../projects/partition.js"
-scg_test= 'data/graph/scgTest.gdf'
-ccn_test = 'data/graph/ccnTest.gdf'
+partition = "../projects/partition.js"
+scg_test = "data/graph/scgTest.gdf"
+ccn_test = "data/graph/ccnTest.gdf"
 
 projects = "../../projects"
 ground_truth = "src/core/ground_truth.json"
