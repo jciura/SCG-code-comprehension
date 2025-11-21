@@ -110,10 +110,10 @@ uv sync
 ```
 
 # Claude
-
-1. Pobrać z https://www.claude.com/download
-2. W settings>Developer>Edit Config
-3. Trzeba edytować plik claude_desktop_config:
+1. DARMOWY CLAUDE MA JAKIŚ LIMIT PYTAŃ, więć rozważnie z testowaniem
+2. Pobrać z https://www.claude.com/download
+3. W settings>Developer>Edit Config
+4. Trzeba edytować plik claude_desktop_config:
    ```json
    {
    "mcpServers": {
@@ -124,11 +124,11 @@ uv sync
       }
     }
    }
-4. W command i args ścieżki do pythona i do mcpserver.py
-5. SystemPrompt na razie prosty, potem trzeba przenieść do osobnego ReadMe i dodać coś jeszcze
-6. Jak zadaje mu się pytanie o coś to dopytuje i ciągle prosi o możliwość kolejnego zapytania do MCP
-7. Można dać w końcu deny i z tego co ma ułoży odpowiedź
-8. Pewnie trzeba to poprawić w README żeby nie dopytywał zbyt dużo w nieskończoność
+5. W command i args ścieżki do pythona i do mcpserver.py
+6. SystemPrompt na razie prosty, potem trzeba przenieść do osobnego ReadMe i dodać coś jeszcze
+7. Jak zadaje mu się pytanie o coś to dopytuje i ciągle prosi o możliwość kolejnego zapytania do MCP
+8. Można dać w końcu deny i z tego co ma ułoży odpowiedź
+9. Pewnie trzeba to poprawić w README żeby nie dopytywał zbyt dużo w nieskończoność
 
 ## Linki 
 https://medium.com/@med.el.harchaoui/rag-evaluation-metrics-explained-a-complete-guide-dbd7a3b571a8
