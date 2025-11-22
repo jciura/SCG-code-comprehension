@@ -111,9 +111,10 @@ uv sync
 
 # Claude
 
-1. Pobrać z https://www.claude.com/download
-2. W settings>Developer>Edit Config
-3. Trzeba edytować plik claude_desktop_config:
+1. DARMOWY CLAUDE ma jakis limit pytań
+2. Pobrać z https://www.claude.com/download
+3. W settings>Developer>Edit Config
+4. Trzeba edytować plik claude_desktop_config:
    ```json
    {
    "mcpServers": {
@@ -122,12 +123,11 @@ uv sync
       "args": ["C:/Users/chinc/PycharmProjects/inzynierka1/src/clients/mcpserver.py"],
       "docs": "C:/Users/chinc/PycharmProjects/inzynierka1/src/clients/AGENT.md"
     }
+   }
+   }
 
-}
-}
-
-4. W command i args ścieżki do pythona i do mcpserver.py, a w docs ścieżka do pliku AGENT.md
-5. Na razie daje strasznie duże parametry do pytań i je zmienia mimo wielu poleceń w AGENT.md by tego nie robił
+5. W command i args ścieżki do pythona i do mcpserver.py, a w docs ścieżka do pliku AGENT.md
+6. Na razie daje strasznie duże parametry do pytań i je zmienia mimo wielu poleceń w AGENT.md by tego nie robił
 
 ## Linki 
 https://medium.com/@med.el.harchaoui/rag-evaluation-metrics-explained-a-complete-guide-dbd7a3b571a8
