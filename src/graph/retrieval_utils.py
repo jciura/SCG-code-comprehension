@@ -168,7 +168,7 @@ def expand_usage_results(
 
 
 def expand_definition_neighbors(
-    unique_results: List[Tuple[float, Dict[str, Any]]], collection: Any
+        unique_results: List[Tuple[float, Dict[str, Any]]], collection: Any, max_neighbors: int
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Expands definition results with neighbors if single object query.
@@ -176,6 +176,8 @@ def expand_definition_neighbors(
     Args:
         unique_results: List of unique results
         collection: Chroma collection handle
+        max_neighbors: Number of neighbors of each top node to get
+
 
     Returns:
         Expanded list with neighbor nodes
@@ -201,7 +203,7 @@ def expand_definition_neighbors(
         except (json.JSONDecodeError, TypeError):
             related_entities = []
 
-        neighbors_to_fetch = related_entities[:2]
+        neighbors_to_fetch = related_entities[:max_neighbors]
 
         if neighbors_to_fetch:
             try:

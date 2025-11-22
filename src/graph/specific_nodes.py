@@ -12,8 +12,12 @@ from graph.similar_node_optimization import get_graph_model
 
 
 async def get_specific_nodes_context(
-        question: str, analysis: IntentAnalysis, model_name: str,
-        collection: Any, top_k: int = 20) -> Tuple[List[Tuple[float, Dict[str, Any]]], str]:
+        question: str,
+        analysis: IntentAnalysis,
+        model_name: str,
+        collection: Any,
+        **params,
+) -> Tuple[List[Tuple[float, Dict[str, Any]]], str]:
     """
         Find nodes included in user question
     
@@ -22,13 +26,17 @@ async def get_specific_nodes_context(
             analysis: Analysis of user's question
             model_name: Name of LLM model used for finding context
             collection: Chroma collection handle
-            top_k: Base number of results per query embedding
+            **params:
+                top_k: Maximum number of top nodes to get context from
+                max_neighbors: Maximum number of neighbors for each top node
     
         Returns:
             Top nodes with metadata and metric values
     """
     start_time = time.time()
-
+    top_k = params.get('top_k', 10)
+    max_neighbors = params.get('max_neighbors', 2)
+    logger.info(f"TOP K: {top_k}, Max neighbors: {max_neighbors}")
     try:
         from src.graph.generate_embeddings_graph import generate_embeddings_graph
         from src.graph.retriver import extract_key_value_pairs_simple
@@ -71,7 +79,7 @@ async def get_specific_nodes_context(
             target_entity = identify_target_entity(unique_results)
             top_nodes = expand_usage_results(unique_results, collection, target_entity)
         else:
-            top_nodes = expand_definition_neighbors(unique_results, collection)
+            top_nodes = expand_definition_neighbors(unique_results, collection, max_neighbors)
         logger.debug(f"Selected {len(top_nodes)} best nodes")
 
         category = analysis.get("category", "general")

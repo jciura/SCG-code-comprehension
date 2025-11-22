@@ -486,9 +486,11 @@ class AskRequest(BaseModel):
 
     Attributes:
         question (str): The user's input question.
+        params (dict): The agent's input parameters specific for each endpoint.
     """
 
     question: str
+    params: dict | None = None
 
 
 class AskResponse(BaseModel):
@@ -508,20 +510,20 @@ class AskResponse(BaseModel):
 
 @app.post("/ask_specific_nodes")
 async def ask_specific_nodes(req: AskRequest):
-    return await build_context(req.question, get_specific_nodes_context)
+    return await build_context(req.question, get_specific_nodes_context, req.params)
 
 
 @app.post("/ask_top_nodes")
 async def ask_top_nodes(req: AskRequest):
-    return await build_context(req.question, get_top_nodes_context)
+    return await build_context(req.question, get_top_nodes_context, req.params)
 
 
 @app.post("/ask_general_question")
 async def ask_general_question(req: AskRequest):
-    return await build_context(req.question, get_general_nodes_context)
+    return await build_context(req.question, get_general_nodes_context, req.params)
 
 
-async def build_context(question: str, node_func):
+async def build_context(question: str, node_func, params: dict):
     """
     Handles the all the endpoints for quick RAG-style context retrieval.
 
@@ -540,6 +542,9 @@ async def build_context(question: str, node_func):
     """
     logger.info(f"Received question: {question}")
 
+    if params is None:
+        params = {}
+
     try:
         analyzer = get_intent_analyzer()
         intent_start_time = time.time()
@@ -555,10 +560,9 @@ async def build_context(question: str, node_func):
         logger.info(f"User intent analysis: {intent_time:.3f}s - {user_intent}")
 
         rag_start_time = time.time()
-        logger.info(f"Func: {node_func}")
         matches, context = await asyncio.wait_for(
             node_func(question, user_intent_analysis, model_name=CODEBERT_MODEL_NAME,
-                      collection=get_collection("scg_embeddings")), timeout=60.0
+                      collection=get_collection("scg_embeddings"), **params), timeout=60.0
         )
         rag_time = time.time() - rag_start_time
         logger.info(f"RAG processing: {rag_time:.3f}s, found {len(matches)} matches")

@@ -160,10 +160,9 @@ async def get_general_nodes_context(
         analysis: IntentAnalysis,
         model_name: str,
     collection: Any,
-    top_k: int = 5,
-    max_neighbors: int = 3,
     code_snippet_limit: int = 800,
     batch_size: int = 5,
+        **params
 ) -> None | tuple[list[Any], str] | list[tuple[int, dict[str, Any]]]:
     """
     Retrieves top nodes for a general question using LLM-guided filtering.
@@ -173,14 +172,20 @@ async def get_general_nodes_context(
         analysis: Analysis of user question
         model_name: Name of LLM model used for finding context
         collection: Chroma collection handle
-        top_k: Number of final nodes to return
-        max_neighbors: Max related neighbors per node
         code_snippet_limit: Max characters per snippet for LLM
         batch_size: Number of candidates scored per batch
+        **params:
+            top_k: Number of nodes to get context from
+            max_neighbors: How many neighbors of each top node to get
 
     Returns:
         Top nodes with metadata and code
     """
+    top_k = params.get("top_k", 5)
+    max_neighbors = params.get("max_neighbors", 3)
+    logger.info(f"TOP K: {top_k}, Max neighbors: {max_neighbors}")
+
+
     if analysis.primary_intent == "exception":
         logger.debug("EXCEPTION category detected - forcing embeddings search")
         embeddings_input = [question]
@@ -209,7 +214,7 @@ async def get_general_nodes_context(
                 unique_results.append((score, node))
                 seen.add(node["node"])
 
-        top_nodes = unique_results[:10]
+        top_nodes = unique_results[:top_k]
         logger.debug(f"EXCEPTION: found {len(top_nodes)} nodes via embeddings")
 
     else:
@@ -242,11 +247,14 @@ async def get_general_nodes_context(
             questionAnalysis = json.loads(questionAnalysis)
         except (json.JSONDecodeError, TypeError):
             questionAnalysis = {"kinds": [], "keywords": []}
+
         kinds = set([k.upper() for k in questionAnalysis.get("kinds", [])])
         keywords = [kw.lower() for kw in questionAnalysis.get("keywords", [])]
-        all_nodes = collection.get(include=["metadatas", "documents"])
         logger.debug(f"kinds: {kinds}, keywords: {keywords}")
+
+        all_nodes = collection.get(include=["metadatas", "documents"])
         candidate_nodes = _filter_candidates(all_nodes, kinds, keywords, kind_weights)
+
         if not candidate_nodes:
             logger.debug("No candidates found, selecting fallback top-5 by combined score")
             fallback_nodes = sorted(
@@ -271,47 +279,50 @@ async def get_general_nodes_context(
                 if score >= 3:
                     node_tuple = next((c for c in batch if c[0] == node_id), None)
                     if node_tuple:
-                        _, metadata, doc, _ = node_tuple
+                        _, metadata, doc, hybrid_score = node_tuple
                         if node_id not in seen_nodes:
                             top_nodes.append(
-                                (score, {"node": node_id, "metadata": metadata, "code": doc})
+                                (hybrid_score + score * 100, {"node": node_id, "metadata": metadata, "code": doc})
                             )
                             seen_nodes.add(node_id)
-                        neighbor_nodes = expand_node_with_neighbors(
-                            node_id, metadata, collection, seen_nodes, max_neighbors
-                        )
-                        for neighbor_score_offset, neighbor_data in neighbor_nodes:
-                            top_nodes.append((score + neighbor_score_offset, neighbor_data))
-                            seen_nodes.add(neighbor_data["node"])
-        final_top_nodes = top_nodes.copy()
+
+        top_nodes = sorted(top_nodes, key=lambda x: x[0], reverse=True)[:top_k]
+
+        extended_top_nodes = top_nodes.copy()
+        seen_nodes = set(n[1]["node"] for n in top_nodes)
         for score, node_data in top_nodes:
+            neighbor_nodes = expand_node_with_neighbors(
+                node_data["node"], node_data["metadata"], collection, seen_nodes, max_neighbors
+            )
+            for score_offset, neighbor_data in neighbor_nodes:
+                if neighbor_data["node"] not in seen_nodes:
+                    extended_top_nodes.append((score_offset, neighbor_data))
+                    seen_nodes.add(neighbor_data["node"])
+
+        final_top_nodes = extended_top_nodes.copy()
+        for _, node_data in extended_top_nodes:
             if node_data["metadata"].get("kind") == "CLASS":
                 class_name = node_data["metadata"].get("label")
-                usage_nodes = find_usage_nodes(
-                    collection, class_name, max_results=max_usage_nodes_for_context
-                )
+                usage_nodes = find_usage_nodes(collection, class_name, max_results=max_usage_nodes_for_context)
                 for u_score, u_node_id, u_doc, u_metadata in usage_nodes:
                     if u_node_id in seen_nodes:
                         continue
-                    final_top_nodes.append(
-                        (u_score - 1, {"node": u_node_id, "metadata": u_metadata, "code": u_doc})
-                    )
+                    final_top_nodes.append((u_score - 1, {"node": u_node_id, "metadata": u_metadata, "code": u_doc}))
                     seen_nodes.add(u_node_id)
-        top_nodes = sorted(final_top_nodes, key=lambda x: x[0], reverse=True)[:top_k]
-        logger.info(f"Found {len(top_nodes)} top_nodes")
-        logger.debug(f"TOP NODES from general_question: {[n[1]['node'] for n in top_nodes]}")
+
+        logger.info(f"Found {len(final_top_nodes)} top_nodes")
+        logger.debug(f"TOP NODES from general_question: {[n[1]['node'] for n in final_top_nodes]}")
 
         category = getattr(analysis, "primary_intent", IntentCategory.GENERAL)
         if hasattr(category, "value"):
             category = category.value
-
         confidence = getattr(analysis, "confidence", 0.5)
 
         full_context = build_context(
-            top_nodes, category, confidence, question=question, target_method=None
+            final_top_nodes, category, confidence, question=question, target_method=None
         )
 
         end_time = time.time()
         elapsed_ms = (end_time - start_time) * 1000
         logger.debug(f"Completed in: {elapsed_ms:.1f}ms")
-        return top_nodes, full_context or "<NO CONTEXT FOUND>"
+        return final_top_nodes, full_context or "<NO CONTEXT FOUND>"

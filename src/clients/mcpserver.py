@@ -5,7 +5,7 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("junie-context")
 
 
-async def call_fastapi(endpoint: str, question: str) -> str:
+async def call_fastapi(endpoint: str, question: str, params) -> str:
     """
     Sends a question to the Junie RAG API and returns its contextual response.
 
@@ -25,7 +25,7 @@ async def call_fastapi(endpoint: str, question: str) -> str:
         async with httpx.AsyncClient(timeout=180) as client:
             response = await client.post(
                 f"http://127.0.0.1:8000/{endpoint}",
-                json={"question": question},
+                json={"question": question, "params": params},
             )
             response.raise_for_status()
             data = response.json()
@@ -36,12 +36,13 @@ async def call_fastapi(endpoint: str, question: str) -> str:
 
 
 @mcp.tool()
-async def ask_specific_nodes(question: str) -> str:
+async def ask_specific_nodes(question: str, top_k: int, max_neighbors: int) -> str:
     """
     Pytanie, w którym wiadomo jaki jest typ i nazwa węzła lub węzłów jakich mamy szukać.
     """
     logger.info("MCP specific_nodes question: {}".format(question))
-    return await call_fastapi("ask_specific_nodes", question)
+    params = {"top_k": top_k, "max_neighbors": max_neighbors}
+    return await call_fastapi("ask_specific_nodes", question, params)
 
 
 @mcp.tool()
@@ -50,17 +51,19 @@ async def ask_top_nodes(question: str) -> str:
     Pytanie typu top - szukamy węzłow o najmniejzej/największej wartości parametru.
     """
     logger.info("MCP top_nodes question: {}".format(question))
-    return await call_fastapi("ask_top_nodes", question)
+    params = {}
+    return await call_fastapi("ask_top_nodes", question, params)
 
 
 @mcp.tool()
-async def ask_general_question(question: str) -> str:
+async def ask_general_question(question: str, top_nodes: int, max_neighbors: int) -> str:
     """
     Ogólne pytanie, w którym nie są znane szukane węzły lub nawet jeżeli jakiś jest podany
     to i tak jest ono bardzo ogólne.
     """
     logger.info("MCP general_question question: {}".format(question))
-    return await call_fastapi("ask_general_question", question)
+    params = {"top_nodes": top_nodes, "max_neighbors": max_neighbors}
+    return await call_fastapi("ask_general_question", question, params)
 
 
 if __name__ == "__main__":

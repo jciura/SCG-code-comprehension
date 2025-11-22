@@ -99,7 +99,7 @@ async def extract_key_value_pairs_simple(question: str) -> List[Tuple[str, str]]
     - Always return a JSON array, even if there's only 1 element
     - If no pairs found, return empty array: []
 
-    Return your JSON now
+    Return your JSON without ```json only array of pairs
     """
 
     answer = await call_llm(classification_prompt)
