@@ -60,6 +60,8 @@ async def get_specific_nodes_context(
         logger.debug(f"Enhanced classification: {analysis}")
 
         pairs = await extract_key_value_pairs_simple(question)
+        pairs = [(t.lower(), n.lower()) for t, n in pairs]
+
         logger.debug(f"Question: '{question}'")
         logger.debug(f"Extracted pairs: {pairs}")
 
