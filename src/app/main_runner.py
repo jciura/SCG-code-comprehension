@@ -119,10 +119,10 @@ def generate_embeddings_graph_main() -> None:
             )
         except Exception as e:
             logger.error(f"Failed to add {node_id}: {str(e)}")
-    # with open("../embeddings/node_embedding.json", "w", encoding="utf-8") as f:
-    #     json.dump(json_data, f, ensure_ascii=False, indent=2)
+    with open("../../data/embeddings/node_embedding.json", "w", encoding="utf-8") as f:
+        json.dump(json_data, f, ensure_ascii=False, indent=2)
 
 
 if __name__ == "__main__":
-    # load_graph_main()
+    load_graph_main()
     generate_embeddings_graph_main()
