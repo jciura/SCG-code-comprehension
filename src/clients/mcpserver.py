@@ -1,6 +1,7 @@
 import httpx
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
+from graph.QueryTopMode import QueryTopMode
 
 mcp = FastMCP("junie-context")
 
@@ -36,22 +37,22 @@ async def call_fastapi(endpoint: str, question: str, params) -> str:
 
 
 @mcp.tool()
-async def ask_specific_nodes(question: str, top_k: int, max_neighbors: int) -> str:
+async def ask_specific_nodes(question: str, top_k: int, max_neighbors: int, neighbor_type: str) -> str:
     """
     Pytanie, w którym wiadomo jaki jest typ i nazwa węzła lub węzłów jakich mamy szukać.
     """
     logger.info("MCP specific_nodes question: {}".format(question))
-    params = {"top_k": top_k, "max_neighbors": max_neighbors}
+    params = {"top_k": top_k, "max_neighbors": max_neighbors, "neighbor_type": neighbor_type}
     return await call_fastapi("ask_specific_nodes", question, params)
 
 
 @mcp.tool()
-async def ask_top_nodes(question: str) -> str:
+async def ask_top_nodes(question: str, query_mode: QueryTopMode) -> str:
     """
     Pytanie typu top - szukamy węzłow o najmniejzej/największej wartości parametru.
     """
     logger.info("MCP top_nodes question: {}".format(question))
-    params = {}
+    params = {"query_mode": query_mode.value}
     return await call_fastapi("ask_top_nodes", question, params)
 
 

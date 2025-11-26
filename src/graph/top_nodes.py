@@ -4,7 +4,9 @@ from typing import Any, Dict, List, Coroutine
 
 from loguru import logger
 
+from context.context_builder import build_context
 from core.models import IntentAnalysis
+from graph.QueryTopMode import QueryTopMode
 from src.clients.llm_client import call_llm
 
 
@@ -49,6 +51,13 @@ tuple[
     Returns:
         Top nodes with metadata and metric values
     """
+    query_mode = params.get("query_mode", QueryTopMode.LIST_ONLY)
+    if isinstance(query_mode, str):
+        try:
+            query_mode = QueryTopMode(query_mode)
+        except ValueError:
+            logger.warning(f"Invalid query_mode '{query_mode}', using LIST_ONLY.")
+            query_mode = QueryTopMode.LIST_ONLY
     classification_prompt = f"""
     User question: "{question}"
     
@@ -83,29 +92,47 @@ tuple[
         order = "desc"
         limit = 5
 
-    results = collection.get(include=["metadatas"])
+    results = collection.get(include=["metadatas", "documents"])
 
     nodes = [
         {
             "node": results["ids"][i],
             "metadata": results["metadatas"][i],
+            "code": results["documents"][i],
             "metric_value": get_metric_value(results["metadatas"][i], metric),
         }
         for i in range(len(results["ids"]))
     ]
-    logger.debug(f"Sample node: {nodes[0] if nodes else 'None'}")
-    filtered_sorted_nodes = sorted(
+    top_nodes = sorted(
         (node for node in nodes if node["metadata"].get("kind") in kinds),
         key=lambda n: n["metric_value"],
         reverse=(order.lower() == "desc"),
-    )
+    )[:limit]
 
-    context = " ".join(
-        f"{node.get('metadata', {}).get('label', '')} - {node.get('metric_value'):.2f}"
-        for node in filtered_sorted_nodes[:limit]
-    )
+    logger.debug(f"MODE: {query_mode}")
+    if query_mode == QueryTopMode.LIST_ONLY:
+        context = " ".join(
+            f"{node.get('metadata', {}).get('label', '')} - {node.get('metric_value'):.2f}"
+            for node in top_nodes
+        )
+    else:
+        top_nodes = [
+            (
+                n["metric_value"],
+                {
+                    "node": n["node"],
+                    "metadata": n["metadata"],
+                    "code": n["code"],
+                }
+            )
+            for n in top_nodes
+        ]
+        context = build_context(
+            top_nodes, "definition", 1.0, question=question, target_method=None
+        )
+
     logger.debug(f"Top query context: {context}")
     end_time = time.time()
     elapsed_ms = (end_time - start_time) * 1000
     logger.debug(f"Completed in: {elapsed_ms:.1f}ms")
-    return filtered_sorted_nodes[:limit], context or "<NO CONTEXT FOUND>"
+    return top_nodes, context or "<NO CONTEXT FOUND>"

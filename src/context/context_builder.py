@@ -62,19 +62,6 @@ def build_context(
     except ValueError:
         intent_category = IntentCategory.GENERAL
 
-    if category == "definition" and nodes:
-        best_node = nodes[0][1]
-        kind = best_node.get("metadata", {}).get("kind", "")
-        if kind == "CLASS":
-            code = best_node.get("code", "")
-            node_id = best_node.get("node", "")
-            if code:
-                filtered_code = filter_definition_code(code, node_id, kind)
-                if filtered_code:
-                    result = f"## {kind}: {node_id}\n{filtered_code}"
-                    logger.debug(f"return for CLASS definition: {len(result)} chars")
-                    return result
-
     if category in ["medium", "general"] and confidence < 0.7 and nodes:
         first_node = nodes[0][1]
         node_kind = first_node.get("metadata", {}).get("kind", "")

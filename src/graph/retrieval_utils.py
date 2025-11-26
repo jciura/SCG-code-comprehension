@@ -1,8 +1,7 @@
 import json
 from typing import Any, Dict, List, Optional, Set, Tuple
-
 from loguru import logger
-
+from graph.NeighborTypeEnum import NeighborTypeEnum
 from src.graph.usage_finder import find_usage_nodes
 
 debug_results_limit = 5
@@ -168,7 +167,8 @@ def expand_usage_results(
 
 
 def expand_definition_neighbors(
-        unique_results: List[Tuple[float, Dict[str, Any]]], collection: Any, max_neighbors: int
+        unique_results: List[Tuple[float, Dict[str, Any]]], collection: Any, max_neighbors: int,
+        neighbor_type: NeighborTypeEnum.ANY
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Expands definition results with neighbors if single object query.
@@ -183,15 +183,13 @@ def expand_definition_neighbors(
         Expanded list with neighbor nodes
     """
     top_nodes = unique_results[: len(unique_results)]
-    if len(top_nodes) != 1:
-        return top_nodes
-
     current_nodes = top_nodes.copy()
     added_nodes = {node_data["node"] for _, node_data in top_nodes}
 
     for node_score, node_data in current_nodes:
         node_id = node_data["node"]
         metadata = node_data["metadata"]
+        parent_kind = metadata.get("kind", "")
 
         related_entities_str = metadata.get("related_entities", "")
         try:
@@ -203,35 +201,39 @@ def expand_definition_neighbors(
         except (json.JSONDecodeError, TypeError):
             related_entities = []
 
-        neighbors_to_fetch = related_entities[:max_neighbors]
+        if not related_entities:
+            continue
 
-        if neighbors_to_fetch:
-            try:
-                neighbors = collection.get(
-                    ids=neighbors_to_fetch, include=["metadatas", "documents"]
-                )
-            except Exception as e:
-                logger.warning(f"ChromaDB get failed (likely telemetry): {e}")
-                neighbors = {"ids": [], "metadatas": [], "documents": []}
+        try:
+            neighbors = collection.get(
+                ids=related_entities, include=["metadatas", "documents"]
+            )
+        except Exception as e:
+            logger.warning(f"ChromaDB get failed (likely telemetry): {e}")
+            neighbors = {"ids": [], "metadatas": [], "documents": []}
 
-            for j in range(len(neighbors["ids"])):
-                neighbor_id = neighbors["ids"][j]
-                neighbor_metadata = neighbors["metadatas"][j]
-                neighbor_kind = neighbor_metadata.get("kind", "")
-                neighbor_doc = neighbors["documents"][j] or ""
-                if (
-                    metadata.get("kind") == "CLASS"
-                    and (neighbor_kind == "METHOD" or neighbor_kind == "VARIABLE")
-                    and str(neighbor_id).startswith(f"{node_id}.")
-                    or neighbor_id in added_nodes
-                ):
+        neighbors_added = 0
+        for j in range(len(neighbors["ids"])):
+            if neighbors_added >= max_neighbors:
+                break
+            neighbor_id = neighbors["ids"][j]
+            neighbor_metadata = neighbors["metadatas"][j]
+            neighbor_kind = neighbor_metadata.get("kind", "")
+            neighbor_doc = neighbors["documents"][j] or ""
+
+            if neighbor_type != NeighborTypeEnum.ANY:
+                if neighbor_kind.upper() != neighbor_type.value:
                     continue
-                top_nodes.append(
-                    (
-                        node_score,
-                        {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_doc},
-                    )
-                )
-                added_nodes.add(neighbor_id)
+
+            if (parent_kind == "CLASS" and neighbor_kind in ("METHOD", "VARIABLE")
+                and str(neighbor_id).startswith(f"{node_id}.")) or neighbor_id in added_nodes:
+                continue
+
+            top_nodes.append((
+                node_score,
+                {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_doc},
+            ))
+            added_nodes.add(neighbor_id)
+            neighbors_added += 1
 
     return top_nodes
