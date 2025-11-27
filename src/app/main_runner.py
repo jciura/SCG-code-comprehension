@@ -54,16 +54,32 @@ def run_scg_cli(project_path: Path, output_folder: Path):
     moved_scg = output_folder / "scgTest.gdf"
     if generated_scg_file.exists():
         shutil.move(str(generated_scg_file), str(moved_scg))
-        logger.info(f"CCN graph moved to {moved_scg}")
+        logger.info(f"SCG graph moved to {moved_scg}")
     else:
-        logger.error(f"CCN graph not found at {moved_scg}")
+        logger.error(f"SCG graph not found at {moved_scg}")
 
     crucial_cmd = [
         "scg-cli", "crucial",
         str(project_path)
     ]
     logger.info(f"Running: {' '.join(crucial_cmd)}")
-    subprocess.run(crucial_cmd, check=True, cwd=project_path, shell=True)
+    subprocess.run(crucial_cmd, check=True, cwd=project_path.parent, shell=True)
+
+    generated_crucial_file = project_parent / "crucial.html"
+    generated_partition_file = project_parent / "partition.js"
+    moved_crucial = output_folder / "crucial.html"
+    moved_partition = output_folder / "partition.js"
+    if generated_crucial_file.exists():
+        shutil.move(str(generated_crucial_file), str(moved_crucial))
+        logger.info(f"Crucial nodes file moved to {moved_crucial}")
+    else:
+        logger.error(f"Crucial nodes file not found at {moved_crucial}")
+
+    if generated_partition_file.exists():
+        shutil.move(str(generated_partition_file), str(moved_partition))
+        logger.info(f"Partition file moved to {moved_partition}")
+    else:
+        logger.error(f"Partition file not found at {moved_partition}")
 
 
 def load_graph_main() -> None:
@@ -182,5 +198,5 @@ if __name__ == "__main__":
 
     project_path = Path(args.project).resolve()
     program_graph_folder = Path(__file__).parent.parent.parent / "data/graph"
-    # run_scg_cli(project_path, program_graph_folder)
+    run_scg_cli(project_path, program_graph_folder)
     generate_embeddings_graph_main(project_path)
