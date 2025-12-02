@@ -15,7 +15,7 @@ async def call_fastapi(endpoint: str, question: str, params) -> str:
     text if the request fails.
 
     Args:
-        endpoint: 
+        endpoint:
         question (str): The user question to send to the Junie backend.
 
     Returns:
@@ -37,7 +37,9 @@ async def call_fastapi(endpoint: str, question: str, params) -> str:
 
 
 @mcp.tool()
-async def ask_specific_nodes(question: str, top_k: int, max_neighbors: int, neighbor_type: str) -> str:
+async def ask_specific_nodes(
+    question: str, top_k: int, max_neighbors: int, neighbor_type: str
+) -> str:
     """
     Pytanie, w którym wiadomo jaki jest typ i nazwa węzła lub węzłów jakich mamy szukać.
     """

@@ -279,23 +279,3 @@ def _truncate_context(context: str, max_chars: int) -> str:
             return result
 
     return context[:max_chars] + "\n... [truncated]"
-
-
-def post_process_answer(answer: str, intent: Dict[str, Any]) -> str:
-    """
-    Post-processes the LLM answer.
-
-    Trims whitespace and, if the answer is very short, appends a gentle note
-    indicating limited detail found in the provided code.
-
-    Args:
-        answer (str): Raw LLM answer.
-        intent (Dict[str, Any]): Intent payload (reserved for future tweaks).
-
-    Returns:
-        str: Cleaned (and possibly augmented) answer text.
-    """
-    processed_answer = answer.strip()
-    if len(processed_answer) < 30:
-        processed_answer += "\n\nNo detailed information found in the provided code."
-    return processed_answer

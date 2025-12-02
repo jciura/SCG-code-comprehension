@@ -5,38 +5,41 @@ from core.intent_analyzer import get_intent_analyzer
 from core.models import IntentAnalysis
 from graph.NeighborTypeEnum import NeighborTypeEnum
 from graph.reranking import rerank_results
-from graph.retrieval_utils import deduplicate_results, identify_target_entity, expand_usage_results, \
-    expand_definition_neighbors
-from graph.retriver import extract_key_value_pairs_simple
+from graph.retrieval_utils import (
+    deduplicate_results,
+    identify_target_entity,
+    expand_usage_results,
+    expand_definition_neighbors,
+)
 from graph.similar_node_optimization import get_graph_model
 
 
 async def get_specific_nodes_context(
-        question: str,
-        analysis: IntentAnalysis,
-        model_name: str,
-        collection: Any,
-        **params,
+    question: str,
+    analysis: IntentAnalysis,
+    model_name: str,
+    collection: Any,
+    **params,
 ) -> Tuple[List[Tuple[float, Dict[str, Any]]], str]:
     """
-        Find nodes included in user question
-    
-        Args:
-            question: Natural-language question
-            analysis: Analysis of user's question
-            model_name: Name of LLM model used for finding context
-            collection: Chroma collection handle
-            **params:
-                top_k: Maximum number of top nodes to get context from
-                max_neighbors: Maximum number of neighbors for each top node
-    
-        Returns:
-            Top nodes with metadata and metric values
+    Find nodes included in user question
+
+    Args:
+        question: Natural-language question
+        analysis: Analysis of user's question
+        model_name: Name of LLM model used for finding context
+        collection: Chroma collection handle
+        **params:
+            top_k: Maximum number of top nodes to get context from
+            max_neighbors: Maximum number of neighbors for each top node
+
+    Returns:
+        Top nodes with metadata and metric values
     """
     start_time = time.time()
-    top_k = params.get('top_k', 10)
-    max_neighbors = params.get('max_neighbors', 2)
-    neighbor_type = params.get('neighbor_type', NeighborTypeEnum.ANY)
+    top_k = params.get("top_k", 10)
+    max_neighbors = params.get("max_neighbors", 2)
+    neighbor_type = params.get("neighbor_type", NeighborTypeEnum.ANY)
     if isinstance(neighbor_type, str):
         neighbor_type = NeighborTypeEnum[neighbor_type.upper()]
     logger.info(f"TOP K: {top_k}, Max neighbors: {max_neighbors}")
@@ -84,7 +87,9 @@ async def get_specific_nodes_context(
             target_entity = identify_target_entity(unique_results)
             top_nodes = expand_usage_results(unique_results, collection, target_entity)
         else:
-            top_nodes = expand_definition_neighbors(unique_results, collection, max_neighbors, neighbor_type)
+            top_nodes = expand_definition_neighbors(
+                unique_results, collection, max_neighbors, neighbor_type
+            )
         logger.debug(f"Selected {len(top_nodes)} best nodes")
 
         category = analysis.get("category", "general")
@@ -110,6 +115,7 @@ async def get_specific_nodes_context(
     except Exception as e:
         logger.warning(f"Fallback do oryginalnej funkcji: {e}")
         from src.graph.retriver import similar_node
+
         return similar_node(question, model_name, top_k)
 
 

@@ -4,7 +4,6 @@ from typing import Any, Dict, List
 
 import numpy as np
 import torch
-from loguru import logger
 from sklearn.preprocessing import normalize
 
 

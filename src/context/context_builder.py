@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from loguru import logger
 
 from context.context_extraction import (
-    extract_method_with_context,
     extract_target_from_question,
     extract_usage_fragment,
 )
@@ -12,6 +11,8 @@ from context.context_fallback import build_fallback_context
 from context.context_filtering import (
     filter_definition_code,
     filter_exception_code,
+    filter_testing_code,
+    filter_implementation_code,
 )
 from context.context_priority import (
     get_max_sections_for_category,
@@ -110,17 +111,7 @@ def build_context(
         max_sections = get_max_sections_for_category(category)
         if section_counts[section_label] >= max_sections:
             return False
-
-        if kind == "METHOD" and category in ["definition", "usage", "implementation"]:
-            context_code = extract_method_with_context(metadata, context_lines=5)
-            if context_code and not context_code.startswith("<"):
-                code_preview = context_code
-                header = f"## {kind}: {node_id} (with context)\n"
-            else:
-                max_length = 150 if category in ["usage", "testing"] else 200
-                code_preview = code[:max_length] + "..." if len(code) > max_length else code
-                header = f"## {kind}: {node_id}\n"
-        elif category == "exception":
+        if category == "exception":
             filtered_code = filter_exception_code(code)
             if not filtered_code:
                 return False
@@ -132,8 +123,22 @@ def build_context(
                 return False
             code_preview = filtered_code
             header = f"## {kind}: {node_id}\n"
+        elif category == "testing":
+            filtered_code = filter_testing_code(code)
+            if filtered_code:
+                code_preview = filtered_code
+            else:
+                code_preview = code[:150] + "..." if len(code) > 150 else code
+            header = f"## {kind}: {node_id} (test)\n"
+        elif category == "implementation":
+            filtered_code = filter_implementation_code(code)
+            if filtered_code:
+                code_preview = filtered_code
+            else:
+                code_preview = code[:200] + "..." if len(code) > 200 else code
+            header = f"## {kind}: {node_id} (implementation)\n"
         else:
-            max_length = 150 if category in ["usage", "testing"] else 200
+            max_length = 150 if category == "usage" else 200
             code_preview = code[:max_length] + "..." if len(code) > max_length else code
             header = f"## {kind}: {node_id}\n"
 

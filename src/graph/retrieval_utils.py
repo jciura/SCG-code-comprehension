@@ -167,8 +167,10 @@ def expand_usage_results(
 
 
 def expand_definition_neighbors(
-        unique_results: List[Tuple[float, Dict[str, Any]]], collection: Any, max_neighbors: int,
-        neighbor_type: NeighborTypeEnum.ANY
+    unique_results: List[Tuple[float, Dict[str, Any]]],
+    collection: Any,
+    max_neighbors: int,
+    neighbor_type: NeighborTypeEnum.ANY,
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Expands definition results with neighbors if single object query.
@@ -205,9 +207,7 @@ def expand_definition_neighbors(
             continue
 
         try:
-            neighbors = collection.get(
-                ids=related_entities, include=["metadatas", "documents"]
-            )
+            neighbors = collection.get(ids=related_entities, include=["metadatas", "documents"])
         except Exception as e:
             logger.warning(f"ChromaDB get failed (likely telemetry): {e}")
             neighbors = {"ids": [], "metadatas": [], "documents": []}
@@ -225,14 +225,19 @@ def expand_definition_neighbors(
                 if neighbor_kind.upper() != neighbor_type.value:
                     continue
 
-            if (parent_kind == "CLASS" and neighbor_kind in ("METHOD", "VARIABLE")
-                and str(neighbor_id).startswith(f"{node_id}.")) or neighbor_id in added_nodes:
+            if (
+                parent_kind == "CLASS"
+                and neighbor_kind in ("METHOD", "VARIABLE")
+                and str(neighbor_id).startswith(f"{node_id}.")
+            ) or neighbor_id in added_nodes:
                 continue
 
-            top_nodes.append((
-                node_score,
-                {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_doc},
-            ))
+            top_nodes.append(
+                (
+                    node_score,
+                    {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_doc},
+                )
+            )
             added_nodes.add(neighbor_id)
             neighbors_added += 1
 

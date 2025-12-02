@@ -1,6 +1,6 @@
 import json
 import time
-from typing import Any, Dict, List, Coroutine
+from typing import Any, Dict
 
 from loguru import logger
 
@@ -38,9 +38,9 @@ def get_metric_value(node: Dict[str, Any], metric: str) -> float:
         return float(node.get(metric, 0.0))
 
 
-async def get_top_nodes_context(question: str, analysis: IntentAnalysis, model_name: str, collection: Any, **params) -> \
-tuple[
-    list[dict[str, float | Any]], str]:
+async def get_top_nodes_context(
+    question: str, analysis: IntentAnalysis, model_name: str, collection: Any, **params
+) -> tuple[list[dict[str, float | Any]], str]:
     """
     Finds top nodes based on LLM-guided kind/metric selection.
 
@@ -62,7 +62,8 @@ tuple[
     User question: "{question}"
     
     Your task:
-    1. Determine which node types (CLASS, METHOD, VARIABLE, PARAMETER, CONSTRUCTOR) are relevant, choose only one type if only one is mentioned in question
+    1. Determine which node types (CLASS, METHOD, VARIABLE, PARAMETER, CONSTRUCTOR) are relevant, 
+    choose only one type if only one is mentioned in question
     2. Choose a ranking metric from: loc (lines of code), pagerank, eigenvector, in_degree, 
         out_degree, combined, number_of_neighbors
     3. Determine how many nodes the user wants
@@ -123,13 +124,11 @@ tuple[
                     "node": n["node"],
                     "metadata": n["metadata"],
                     "code": n["code"],
-                }
+                },
             )
             for n in top_nodes
         ]
-        context = build_context(
-            top_nodes, "definition", 1.0, question=question, target_method=None
-        )
+        context = build_context(top_nodes, "definition", 1.0, question=question, target_method=None)
 
     logger.debug(f"Top query context: {context}")
     end_time = time.time()

@@ -38,9 +38,9 @@ def build_fallback_context(collection=None) -> str:
     _context_cache["stats"]["misses"] += 1
     if collection is None:
         try:
-            from src.graph.retriver import chroma_client
+            from src.clients.chroma_client import get_collection
 
-            collection = chroma_client.get_collection(name="scg_embeddings")
+            collection = get_collection()
         except Exception as e:
             logger.error(f"Could not get collection for fallback: {e}")
             return "<NO CONTEXT AVAILABLE - COLLECTION ERROR>"

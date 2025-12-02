@@ -157,12 +157,12 @@ def expand_node_with_neighbors(
 
 async def get_general_nodes_context(
     question: str,
-        analysis: IntentAnalysis,
-        model_name: str,
+    analysis: IntentAnalysis,
+    model_name: str,
     collection: Any,
     code_snippet_limit: int = 800,
     batch_size: int = 5,
-        **params
+    **params,
 ) -> None | tuple[list[Any], str] | list[tuple[int, dict[str, Any]]]:
     """
     Retrieves top nodes for a general question using LLM-guided filtering.
@@ -185,7 +185,6 @@ async def get_general_nodes_context(
     max_neighbors = params.get("max_neighbors", 3)
     logger.info(f"TOP K: {top_k}, Max neighbors: {max_neighbors}")
 
-
     if analysis.primary_intent == "exception":
         logger.debug("EXCEPTION category detected - forcing embeddings search")
         embeddings_input = [question]
@@ -202,9 +201,7 @@ async def get_general_nodes_context(
             node_id = query_result["ids"][0][i]
             metadata = query_result["metadatas"][0][i]
             code = query_result["documents"][0][i]
-            all_results.append(
-                (score, {"node": node_id, "metadata": metadata, "code": code})
-            )
+            all_results.append((score, {"node": node_id, "metadata": metadata, "code": code}))
 
         reranked_results = rerank_results(question, all_results, analysis)
         seen = set()
@@ -263,14 +260,15 @@ async def get_general_nodes_context(
                 reverse=True,
             )[:top_k]
             return [
-                (1, {"node": nid, "metadata": meta, "code": doc}) for nid, meta, doc in fallback_nodes
+                (1, {"node": nid, "metadata": meta, "code": doc})
+                for nid, meta, doc in fallback_nodes
             ]
         candidates_sorted = sorted(candidate_nodes, key=lambda x: x[3], reverse=True)[: top_k * 2]
         top_nodes = []
         seen_nodes = set()
         logger.info(f"Found {len(candidates_sorted)} candidates")
         for i in range(0, len(candidates_sorted), batch_size):
-            batch = candidates_sorted[i:i + batch_size]
+            batch = candidates_sorted[i : i + batch_size]
             scores = await _score_batch(question, batch, code_snippet_limit)
             logger.debug(f"LLM scores: {scores}")
             for s in scores:
@@ -282,7 +280,10 @@ async def get_general_nodes_context(
                         _, metadata, doc, hybrid_score = node_tuple
                         if node_id not in seen_nodes:
                             top_nodes.append(
-                                (hybrid_score + score * 100, {"node": node_id, "metadata": metadata, "code": doc})
+                                (
+                                    hybrid_score + score * 100,
+                                    {"node": node_id, "metadata": metadata, "code": doc},
+                                )
                             )
                             seen_nodes.add(node_id)
 
@@ -303,11 +304,15 @@ async def get_general_nodes_context(
         for _, node_data in extended_top_nodes:
             if node_data["metadata"].get("kind") == "CLASS":
                 class_name = node_data["metadata"].get("label")
-                usage_nodes = find_usage_nodes(collection, class_name, max_results=max_usage_nodes_for_context)
+                usage_nodes = find_usage_nodes(
+                    collection, class_name, max_results=max_usage_nodes_for_context
+                )
                 for u_score, u_node_id, u_doc, u_metadata in usage_nodes:
                     if u_node_id in seen_nodes:
                         continue
-                    final_top_nodes.append((u_score - 1, {"node": u_node_id, "metadata": u_metadata, "code": u_doc}))
+                    final_top_nodes.append(
+                        (u_score - 1, {"node": u_node_id, "metadata": u_metadata, "code": u_doc})
+                    )
                     seen_nodes.add(u_node_id)
 
         logger.info(f"Found {len(final_top_nodes)} top_nodes")

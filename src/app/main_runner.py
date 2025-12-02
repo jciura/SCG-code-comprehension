@@ -24,12 +24,7 @@ def run_scg_cli(project_path: Path, output_folder: Path):
     project_parent = project_path.parent
     project_name = project_path.name
 
-    ccn_cmd = [
-        "scg-cli", "export",
-        "-g", "CCN",
-        "-o", "gdf",
-        str(project_path)
-    ]
+    ccn_cmd = ["scg-cli", "export", "-g", "CCN", "-o", "gdf", str(project_path)]
     logger.info(f"Running: {' '.join(ccn_cmd)}")
     subprocess.run(ccn_cmd, check=True, cwd=project_path, shell=True)
 
@@ -41,12 +36,7 @@ def run_scg_cli(project_path: Path, output_folder: Path):
     else:
         logger.error(f"CCN graph not found at {moved_ccn}")
 
-    scg_cmd = [
-        "scg-cli", "export",
-        "-g", "SCG",
-        "-o", "gdf",
-        str(project_path)
-    ]
+    scg_cmd = ["scg-cli", "export", "-g", "SCG", "-o", "gdf", str(project_path)]
     logger.info(f"Running: {' '.join(scg_cmd)}")
     subprocess.run(scg_cmd, check=True, cwd=project_path, shell=True)
 
@@ -58,10 +48,7 @@ def run_scg_cli(project_path: Path, output_folder: Path):
     else:
         logger.error(f"SCG graph not found at {moved_scg}")
 
-    crucial_cmd = [
-        "scg-cli", "crucial",
-        str(project_path)
-    ]
+    crucial_cmd = ["scg-cli", "crucial", str(project_path)]
     logger.info(f"Running: {' '.join(crucial_cmd)}")
     subprocess.run(crucial_cmd, check=True, cwd=project_path.parent, shell=True)
 

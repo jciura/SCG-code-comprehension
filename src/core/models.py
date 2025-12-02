@@ -21,9 +21,6 @@ class IntentAnalysis:
     primary_intent: IntentCategory
     confidence: float
     scores: Dict[str, float]
-    requires_examples: bool
-    requires_usage_info: bool
-    requires_implementation_details: bool
     enhanced: bool = True
 
 
@@ -67,11 +64,6 @@ class BaseRAGResponse(BaseModel):
 
 class SimpleRAGResponse(BaseRAGResponse):
     pass
-
-
-class NodeRAGResponse(BaseRAGResponse):
-    used_context: str = Field(default="")
-    question_category: Optional[IntentCategory] = None
 
 
 class ConversationMessage(BaseModel):

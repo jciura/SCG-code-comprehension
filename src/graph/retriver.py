@@ -87,7 +87,8 @@ async def extract_key_value_pairs_simple(question: str) -> List[Tuple[str, str]]
     User question: "{question_lower}"
     Your task:
     1. Extract pairs of (Node Type, Node Name) from the question
-    2. Node Type must be one of: ["CLASS", "METHOD", "VARIABLE", "CONSTRUCTOR", "VALUE"], don't pick other option. It is INVALID.
+    2. Node Type must be one of: ["CLASS", "METHOD", "VARIABLE", "CONSTRUCTOR", "VALUE"],
+     don't pick other option. It is INVALID.
     3. For tests assume that node type is: CLASS
     4. Return ONLY a valid JSON array of objects with keys "type" and "name"
 
