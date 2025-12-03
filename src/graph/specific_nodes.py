@@ -2,7 +2,7 @@ import time
 from typing import Any, Dict, List, Tuple, Optional
 from loguru import logger
 from core.intent_analyzer import get_intent_analyzer
-from core.models import IntentAnalysis
+from core.models import IntentAnalysis, IntentCategory
 from graph.NeighborTypeEnum import NeighborTypeEnum
 from graph.reranking import rerank_results
 from graph.retrieval_utils import (
@@ -40,10 +40,11 @@ async def get_specific_nodes_context(
     start_time = time.time()
     top_k = params.get("top_k", 10)
     max_neighbors = params.get("max_neighbors", 2)
-    neighbor_type = params.get("neighbor_type", NeighborTypeEnum.ANY)
-    if isinstance(neighbor_type, str):
-        neighbor_type = NeighborTypeEnum[neighbor_type.upper()]
-    logger.info(f"TOP K: {top_k}, Max neighbors: {max_neighbors}")
+    neighbor_types = params.get("neighbor_types", "ANY")
+    if isinstance(neighbor_types, str):
+        neighbor_types = [neighbor_types]
+    neighbor_types = [NeighborTypeEnum[type.upper()] for type in neighbor_types]
+    logger.info(f"TOP K: {top_k}, Max neighbors: {max_neighbors}, Neighbor types: {neighbor_types}")
     try:
         from src.graph.generate_embeddings_graph import generate_embeddings_graph
         from src.graph.retriver import extract_key_value_pairs_simple
@@ -73,8 +74,9 @@ async def get_specific_nodes_context(
         logger.debug(f"Reranked {len(reranked_results)} results")
         unique_results = deduplicate_results(reranked_results, len(embeddings_input) * top_k)
         target_entity = None
-        category = analysis.get("category", "general")
-        confidence = analysis.get("confidence", 0.5)
+        category = getattr(analysis, "primary_intent", IntentCategory.GENERAL)
+        confidence = getattr(analysis, "confidence", 0.5)
+
 
         if category.lower() == "usage":
             logger.debug("Usage question. Searching in related_entities")
@@ -82,7 +84,7 @@ async def get_specific_nodes_context(
             top_nodes = expand_usage_results(unique_results, collection, target_entity)
         else:
             top_nodes = expand_definition_neighbors(
-                unique_results, collection, max_neighbors, neighbor_type
+                unique_results, collection, max_neighbors, neighbor_types
             )
         logger.debug(f"Selected {len(top_nodes)} best nodes")
 

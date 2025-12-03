@@ -170,7 +170,7 @@ def expand_definition_neighbors(
     unique_results: List[Tuple[float, Dict[str, Any]]],
     collection: Any,
     max_neighbors: int,
-    neighbor_type: NeighborTypeEnum.ANY,
+        neighbor_types: List[NeighborTypeEnum] = [NeighborTypeEnum.ANY],
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Expands definition results with neighbors if single object query.
@@ -221,8 +221,8 @@ def expand_definition_neighbors(
             neighbor_kind = neighbor_metadata.get("kind", "")
             neighbor_doc = neighbors["documents"][j] or ""
 
-            if neighbor_type != NeighborTypeEnum.ANY:
-                if neighbor_kind.upper() != neighbor_type.value:
+            if NeighborTypeEnum.ANY not in neighbor_types:
+                if NeighborTypeEnum[neighbor_kind.upper()] not in neighbor_types:
                     continue
 
             if (

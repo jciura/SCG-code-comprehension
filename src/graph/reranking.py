@@ -276,7 +276,7 @@ def general_factors(
 
 
 def rerank_results(
-    query: str, nodes: List[Tuple[float, Dict[str, Any]]], analyses: Dict[str, Any]
+        query: str, nodes: List[Tuple[float, Dict[str, Any]]], analysis: Dict[str, Any]
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Reranks retrieved nodes based on intent category and various heuristics.
@@ -289,8 +289,8 @@ def rerank_results(
     Returns:
         Reranked items sorted by adjusted score (descending)
     """
-    category = analyses.get("category", "general")
-    confidence = analyses.get("confidence", 0.5)
+    category = getattr(analysis, "primary_intent", IntentCategory.GENERAL)
+    confidence = getattr(analysis, "confidence", 0.5)
 
     try:
         intent_category = IntentCategory(category)

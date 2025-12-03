@@ -62,6 +62,7 @@ async def get_top_nodes_context(
     User question: "{question}"
     
     Your task:
+    Analyze question provided by user based on following rules (bear in mind that question can be in polish):
     1. Determine which node types (CLASS, METHOD, VARIABLE, PARAMETER, CONSTRUCTOR) are relevant, 
     choose only one type if only one is mentioned in question
     2. Choose a ranking metric from: loc (lines of code), pagerank, eigenvector, in_degree, 
@@ -76,7 +77,7 @@ async def get_top_nodes_context(
     Return ONLY valid JSON format:
     {{"kinds": ["CLASS", "METHOD"], "metric": "combined", "limit": 5, "order": "desc"}}
     
-    No comments, only JSON. Include that question can be in polish and english.
+    No comments, only JSON.
 """
     start_time = time.time()
     analysis = await call_llm(classification_prompt)
@@ -92,6 +93,8 @@ async def get_top_nodes_context(
         metric = "combined"
         order = "desc"
         limit = 5
+
+    logger.info(f"Parsed: {parsed}")
 
     results = collection.get(include=["metadatas", "documents"])
 
