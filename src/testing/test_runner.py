@@ -124,6 +124,30 @@ def evaluate_answers(ground_truth_file: str) -> None:
         json.dump(ground_truth, f_out, indent=2, ensure_ascii=False)
 
 
+def get_ground_context(label: str, node_embedding_file):
+    with open(node_embedding_file, "r", encoding="utf-8") as f_emb:
+        embeddings = json.load(f_emb)
+        for emb in embeddings:
+            if emb["label"] == label:
+                return emb["code"]
+        return None
+
+
+def add_ground_context(ground_truth_file: str, node_embedding_file: str) -> None:
+    with open(ground_truth_file, "r", encoding="utf-8") as f:
+        ground_truth = json.load(f)
+
+    questions = ground_truth.get("questions", [])
+
+    for q in questions:
+        if q["key_entities"] != [] and q["ground_truth_contexts"] == []:
+            for entity in q["key_entities"]:
+                q["ground_truth_contexts"].append(get_ground_context(entity, node_embedding_file))
+
+    with open(ground_truth_file, "w", encoding="utf-8") as f_out:
+        json.dump(ground_truth, f_out, indent=2, ensure_ascii=False)
+
 if __name__ == "__main__":
+    add_ground_context("ground_truth.json", "../../data/embeddings/node_embedding.json")
     evaluate_rag_metrics("ground_truth.json")
     evaluate_answers("ground_truth.json")
