@@ -4,9 +4,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_DIR = os.path.dirname(BASE_DIR)
 PROJECT_ROOT = os.path.dirname(SRC_DIR)
 
-default_classifier_embeddings_path = os.path.join(
-    PROJECT_ROOT, "data", "embeddings", "classifier_example_embeddings.json"
-)
 default_classifier_model = "sentence-transformers/all-MiniLM-L6-v2"
 default_chroma_path = os.path.join(PROJECT_ROOT, "data", "embeddings", "chroma_storage")
 default_collection_name = "scg_embeddings"
@@ -23,6 +20,5 @@ scg_test = "../../data/graph/scgTest.gdf"
 ccn_test = "../../data/graph/ccnTest.gdf"
 
 projects = os.path.join(PROJECT_ROOT, "projects")
-ground_truth = "src/core/ground_truth.json"
 metrics_path = "src/logs/metrics_log.jsonl"
 embedding_model = "paraphrase-multilingual-MiniLM-L12-v2"

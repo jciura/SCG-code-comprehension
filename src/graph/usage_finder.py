@@ -178,7 +178,6 @@ def find_usage_nodes(
             if not doc or doc.startswith("<"):
                 continue
 
-            # Check if it's method definition that should be kept
             if target_class_name.lower() in node_id.lower() and metadata.get("kind") == "METHOD":
                 if not should_keep_method_definition(node_id, doc, target_class_name):
                     continue
