@@ -7,6 +7,7 @@ from context.context_builder import build_context
 from core.models import IntentAnalysis, IntentCategory
 from graph.generate_embeddings_graph import generate_embeddings_graph
 from graph.reranking import rerank_results
+from graph.retrieval_utils import is_child_of
 from src.clients.llm_client import call_llm
 from src.graph.usage_finder import find_usage_nodes
 from core.config import COMBINED_MAX
@@ -137,12 +138,10 @@ def expand_node_with_neighbors(
         if neighbor_id in seen_nodes:
             continue
         neighbor_metadata = neighbors["metadatas"][j]
-        neighbor_kind = neighbor_metadata.get("kind", "")
         neighbor_doc = neighbors["documents"][j] or ""
         if (
             metadata.get("kind") == "CLASS"
-            and (neighbor_kind == "METHOD" or neighbor_kind == "VARIABLE")
-            and str(neighbor_id).startswith(f"{node_id}.")
+                and is_child_of(node_id, neighbor_id)
         ):
             continue
         neighbors_data.append(
