@@ -134,9 +134,11 @@ class GroundTruthSource(BaseModel):
 class JunieStats(BaseModel):
     answer: str
     time: float
-    tokens: int
-    hallucination: float
-    correctness: float
+    tokens: int = 0
+    context_tokens: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    hallucination: Optional[float] = None
+    correctness: Optional[float] = None
     used_context: Optional[List[str]] = None
 
 

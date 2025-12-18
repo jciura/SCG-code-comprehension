@@ -4,8 +4,8 @@ from loguru import logger
 from typing import Any, Optional
 
 
-MIN_CODE_LENGTH = 30
-MAX_CONTEXT_CHARS = 8000
+MIN_CODE_LENGTH = 100
+MAX_CONTEXT_CHARS = 50000
 FALLBACK_CACHE_DURATION = 300
 
 

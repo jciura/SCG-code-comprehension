@@ -93,32 +93,49 @@ class IntentAnalyzer:
                 "weight": 1.2,
             },
         }
-        # Wartości node do zmiany bo nie jestem pewny jakie ustawić
         self.context_limits = {
-            IntentCategory.DEFINITION: {"max_chars": 300000,
-                                        "base_nodes": 3,
-                                        "category_nodes": 5,
-                                        "fill_nodes": 2},
-            IntentCategory.IMPLEMENTATION: {"max_chars": 400000,
-                                            "base_nodes": 5,
-                                            "category_nodes": 4,
-                                            "fill_nodes": 3},
-            IntentCategory.USAGE: {"max_chars": 500000,
-                                   "base_nodes": 3,
-                                   "category_nodes": 4,
-                                   "fill_nodes": 2},
-            IntentCategory.TESTING: {"max_chars": 100000,
-                                     "base_nodes": 4,
-                                     "category_nodes": 4,
-                                     "fill_nodes": 3},
-            IntentCategory.EXCEPTION: {"max_chars": 100000,
-                                       "base_nodes": 4,
-                                       "category_nodes": 3,
-                                       "fill_nodes": 2},
-            IntentCategory.GENERAL: {"max_chars": 500000,
-                                     "base_nodes": 8,
-                                     "category_nodes": 2,
-                                     "fill_nodes": 2},
+            IntentCategory.DEFINITION: {
+                "max_chars": 300000,
+                "base_nodes": 5,
+                "category_nodes": 7,
+                "fill_nodes": 4
+            },
+            IntentCategory.IMPLEMENTATION: {
+                "max_chars": 400000,
+                "base_nodes": 7,
+                "category_nodes": 6,
+                "fill_nodes": 5
+            },
+            IntentCategory.USAGE: {
+                "max_chars": 500000,
+                "base_nodes": 5,
+                "category_nodes": 6,
+                "fill_nodes": 4
+            },
+            IntentCategory.TESTING: {
+                "max_chars": 100000,
+                "base_nodes": 6,
+                "category_nodes": 6,
+                "fill_nodes": 5
+            },
+            IntentCategory.EXCEPTION: {
+                "max_chars": 100000,
+                "base_nodes": 6,
+                "category_nodes": 5,
+                "fill_nodes": 4
+            },
+            IntentCategory.GENERAL: {
+                "max_chars": 500000,
+                "base_nodes": 10,
+                "category_nodes": 4,
+                "fill_nodes": 4
+            },
+            IntentCategory.TOP: {
+                "max_chars": 500000,
+                "base_nodes": 8,
+                "category_nodes": 5,
+                "fill_nodes": 4
+            }
         }
 
     def classify_question(self, question: str) -> IntentAnalysis:
