@@ -26,9 +26,10 @@ def get_metric_value(node: Dict[str, Any], metric: str) -> float:
     if metric == "number_of_neighbors":
         related_entities = node.get("related_entities", [])
 
-        if not isinstance(related_entities, list):
-            related_entities = []
+        related_entities = json.loads(related_entities)
 
+        logger.info(f"Related entities: {related_entities}")
+        logger.info(len(related_entities))
         return len(related_entities)
     else:
         return float(node.get(metric, 0.0))

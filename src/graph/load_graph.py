@@ -3,7 +3,7 @@ from typing import Any, Dict
 
 import networkx as nx
 
-SKIP_NODE_KINDS = {"PARAMETER", "VARIABLE", "VALUE"}
+SKIP_NODE_KINDS = {"PARAMETER", "VARIABLE", "VALUE", "SELF_PARAMETER"}
 
 def load_gdf(filepath: str) -> nx.DiGraph:
     """

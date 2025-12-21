@@ -169,6 +169,6 @@ def add_ground_context(ground_truth_file: str, node_embedding_file: str) -> None
         json.dump(ground_truth, f_out, indent=2, ensure_ascii=False)
 
 if __name__ == "__main__":
-    add_ground_context("ground_truth_killbill.json", "../../data/embeddings/node_embedding.json")
-    evaluate_rag_metrics("ground_truth_killbill.json")
-    evaluate_answers("ground_truth_killbill.json")
+    add_ground_context("ground_truth_spark.json", "../../data/embeddings/node_embedding.json")
+    # evaluate_rag_metrics("ground_truth_killbill.json")
+    # evaluate_answers("ground_truth_killbill.json")
