@@ -5,6 +5,7 @@ from loguru import logger
 
 from core.models import IntentAnalysis, IntentCategory
 from graph.NeighborTypeEnum import NeighborTypeEnum
+from graph.RelationTypes import RelationTypes
 from graph.model_cache import get_graph_model
 from graph.reranking import rerank_results
 from graph.retrieval_utils import (
@@ -45,7 +46,12 @@ async def get_specific_nodes_context(
         neighbor_types = [neighbor_types]
     neighbor_types = [NeighborTypeEnum[type.upper()] for type in neighbor_types]
     pairs = params.get("pairs", [])
-    logger.info(f"TOP K: {top_k}, Max neighbors: {max_neighbors}, Neighbor types: {neighbor_types}, pairs: {pairs}")
+    relation_types = params.get("relation_types", [])
+    if isinstance(relation_types, str):
+        relation_types = [relation_types]
+    relation_types = [RelationTypes[type.upper()] for type in relation_types]
+    logger.info(
+        f"TOP K: {top_k}, Max neighbors: {max_neighbors}, Neighbor types: {neighbor_types}, pairs: {pairs}, relation_types: {relation_types}")
     try:
         from src.graph.generate_embeddings_graph import generate_embeddings_graph
         from graph.retrieval_utils import query_embeddings, get_embedding_inputs
@@ -81,7 +87,7 @@ async def get_specific_nodes_context(
             top_nodes = expand_usage_results(unique_results, collection, target_entity)
         else:
             top_nodes = expand_definition_neighbors(
-                unique_results, collection, max_neighbors, neighbor_types
+                unique_results, collection, max_neighbors, neighbor_types, relation_types
             )
         logger.debug(f"Selected {len(top_nodes)} best nodes")
 

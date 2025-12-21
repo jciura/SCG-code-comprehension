@@ -17,7 +17,7 @@ JUNIE_URL = "http://127.0.0.1:8000/ask_junie"
 partition = "../../data/graph/partition.js"
 scg_test = "../../data/graph/scgTest.gdf"
 ccn_test = "../../data/graph/ccnTest.gdf"
-COMBINED_MAX = 319977
+COMBINED_MAX = 997160
 
 projects = os.path.join(PROJECT_ROOT, "projects")
 metrics_path = "src/logs/metrics_log.jsonl"

@@ -158,7 +158,7 @@ async def get_general_nodes_context(
     analysis: IntentAnalysis,
     model_name: str,
     collection: Any,
-        code_snippet_limit: int = 400,
+        code_snippet_limit: int = 1500,
     batch_size: int = 5,
     **params,
 ) -> None | tuple[list[Any], str] | list[tuple[int, dict[str, Any]]]:
@@ -193,19 +193,7 @@ async def get_general_nodes_context(
         "VARIABLE": 0.8,
         "PARAMETER": 0.5,
     }
-    # classification_prompt = f"""
-    # User question: "{question}"
-    #
-    # Your task:
-    # 1. Determine which node types (CLASS, METHOD, VARIABLE, PARAMETER, CONSTRUCTOR)
-    #     are most relevant
-    # 2. Provide 5-10 keywords that should appear in node names
-    #
-    # Return ONLY valid JSON format:
-    # {{"kinds": ["CLASS", "METHOD"], "keywords": ["frontend","controller","view"]}}
-    #
-    # No comments, only JSON. Include that question can be in polish and english.
-    # """
+
     kinds = [k.upper() for k in params.get("kinds", [])]
     keywords = [kw.lower() for kw in params.get("keywords", [])]
     logger.debug(f"kinds: {kinds}, keywords: {keywords}")

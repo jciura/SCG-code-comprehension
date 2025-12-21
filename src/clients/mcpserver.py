@@ -65,7 +65,8 @@ async def read_agent_instructions() -> str:
 
 @mcp.tool()
 async def ask_specific_nodes(
-        question: str, pairs: List[Tuple[str, str]], top_k: int, max_neighbors: int, neighbor_types: List[str]) -> str:
+        question: str, pairs: List[Tuple[str, str]], top_k: int, max_neighbors: int, neighbor_types: List[str],
+        relation_types: List[str]) -> str:
     """
     #REMINDER: IF YOU HAVE CONTEXT (CODE) OF NODE FROM ANOTHER QUERY AND YOU CAN GIVE ANSWER DO NOT ASK ANOTHER QUESTION.
 
@@ -141,7 +142,8 @@ async def ask_specific_nodes(
     ---
     """
     logger.info("MCP specific_nodes question: {}".format(question))
-    params = {"top_k": top_k, "pairs": pairs, "max_neighbors": max_neighbors, "neighbor_types": neighbor_types}
+    params = {"top_k": top_k, "pairs": pairs, "max_neighbors": max_neighbors, "neighbor_types": neighbor_types,
+              "relation_types": relation_types}
     return await call_fastapi("ask_specific_nodes", question, params)
 
 

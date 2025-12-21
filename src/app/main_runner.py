@@ -125,7 +125,7 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
                 "uri": node_text["uri"]
             }
         )
-        texts_for_embedding.append(node_text["text"].lower())
+        texts_for_embedding.append(node_text["text"])
 
     embeddings = generate_embeddings_graph(texts_for_embedding, CODEBERT_MODEL_NAME)
     collection = get_or_create_collection(

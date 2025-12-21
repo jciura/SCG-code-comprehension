@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from loguru import logger
 
 from graph.NeighborTypeEnum import NeighborTypeEnum
+from graph.RelationTypes import RelationTypes
 from src.graph.usage_finder import find_usage_nodes
 
 debug_results_limit = 5
@@ -182,6 +183,7 @@ def expand_definition_neighbors(
     collection: Any,
     max_neighbors: int,
         neighbor_types: List[NeighborTypeEnum] = [NeighborTypeEnum.ANY],
+        relation_types: List[RelationTypes] = [RelationTypes.ANY]
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Expands definition results with neighbors if single object query.
@@ -214,14 +216,16 @@ def expand_definition_neighbors(
         neighbors_to_fetch = []
         seen = set()
 
-        for entity_id, _ in related_entities:
-            if entity_id not in seen:
+        for entity_id, relation in related_entities:
+            if entity_id not in seen and (
+                    RelationTypes[relation.upper()] in relation_types or RelationTypes.ANY in relation_types):
                 seen.add(entity_id)
                 neighbors_to_fetch.append(entity_id)
 
         neighbors_added = 0
 
-        logger.debug(f"Neighbors to fetch: {neighbors_to_fetch}")
+        if not neighbors_to_fetch:
+            logger.debug(f"No neighbors matched neighor_types: {neighbor_types} and relation_types: {relation_types}")
 
         neighbors = collection.get(ids=neighbors_to_fetch, include=["metadatas", "documents"])
 
