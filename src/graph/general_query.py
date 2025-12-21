@@ -158,7 +158,7 @@ async def get_general_nodes_context(
     analysis: IntentAnalysis,
     model_name: str,
     collection: Any,
-        code_snippet_limit: int = 1500,
+        code_snippet_limit: int = 800,
     batch_size: int = 5,
     **params,
 ) -> None | tuple[list[Any], str] | list[tuple[int, dict[str, Any]]]:
