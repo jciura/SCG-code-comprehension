@@ -143,11 +143,11 @@ def evaluate_answers(ground_truth_file: str) -> None:
         json.dump(ground_truth, f_out, indent=2, ensure_ascii=False)
 
 
-def get_ground_context(label: str, node_embedding_file):
+def get_ground_context(node: str, node_embedding_file):
     with open(node_embedding_file, "r", encoding="utf-8") as f_emb:
         embeddings = json.load(f_emb)
         for emb in embeddings:
-            if emb["label"] == label:
+            if emb["node"] == node:
                 return emb["code"]
         return None
 
