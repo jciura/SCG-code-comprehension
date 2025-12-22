@@ -35,17 +35,20 @@ async def get_related_entities(
         Top nodes with metadata and metric values
     """
     limit = params.get("limit", 5)
-    neighbor_types = params.get("neighbor_types", "ANY")
+    neighbor_types = params.get("neighbor_types", ["ANY"])
     if isinstance(neighbor_types, str):
         neighbor_types = [neighbor_types]
-    neighbor_types = [NeighborTypeEnum[type.upper()] for type in neighbor_types]
+    neighbor_types = [NeighborTypeEnum[neighbor_type.upper()] for neighbor_type in neighbor_types]
     logger.info(f"Limit: {limit}, Neighbor types: {neighbor_types}")
 
-    pairs = params.get("params", [])
-    relation_types = params.get("relation_types", [])
-    relation_types = [NeighborTypeEnum[type.upper()] for type in relation_types]
-
+    pairs = params.get("pairs", [])
     pairs = [(t.lower(), n.lower()) for t, n in pairs]
+
+    relation_types = params.get("relation_types", ["ANY"])
+    if isinstance(relation_types, str):
+        neighbor_types = [neighbor_types]
+    relation_types = [RelationTypes[relation_type.upper()] for relation_type in relation_types]
+
 
     logger.debug(f"Question: '{question}'")
     logger.debug(f"Extracted pairs: {pairs}")
@@ -78,7 +81,7 @@ async def get_related_entities(
         relations_by_entity = defaultdict(list)
 
         for entity_id, relation in related_entities:
-            if RelationTypes[relation.lower()] in relation_types or RelationTypes.ANY in relation_types:
+            if RelationTypes[relation.upper()] in relation_types or RelationTypes.ANY in relation_types:
                 relations_by_entity[entity_id].append(relation)
 
         neighbors_to_fetch = list(relations_by_entity.keys())
