@@ -41,11 +41,11 @@ async def call_llm(prompt: str) -> str:
 
         candidates = result.get("candidates", [])
         if not candidates:
-            return "Error: Model nie zwrócił żadnych odpowiedzi (możliwa blokada treści)."
+            return "Error: The model did not return any responses (content blocking possible)."
 
         return candidates[0]["content"]["parts"][0]["text"].strip()
 
     except httpx.HTTPStatusError as e:
-        return f"Błąd HTTP: {e.response.status_code} - {e.response.text}"
+        return f"Error HTTP: {e.response.status_code} - {e.response.text}"
     except Exception as e:
-        return f"Wystąpił nieoczekiwany błąd: {str(e)}"
+        return f"Unexpected error occurred: {str(e)}"

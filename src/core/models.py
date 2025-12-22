@@ -130,21 +130,26 @@ class GroundTruthSource(BaseModel):
     source: str
     quote: str
 
+class ClaudeStats(BaseModel):
+    answer: str = ""
+    time: float = 0
+    tokens: int = 0
+    context_tokens: int = 0
+    used_context: List[str] = Field(default_factory=list)
+
 
 class JunieStats(BaseModel):
-    answer: str
-    time: float
+    answer: str = ""
+    time: float = 0
     tokens: int = 0
     context_tokens: Optional[int] = None
-    prompt_tokens: Optional[int] = None
-    hallucination: Optional[float] = None
-    correctness: Optional[float] = None
-    used_context: Optional[List[str]] = None
+    used_context: Optional[List[str]] = Field(default_factory=list)
 
 
-class JunieStatsStrucutre(BaseModel):
-    with_mcp: JunieStats
-    without_mcp: JunieStats
+class JunieStatsStructure(BaseModel):
+    with_mcp: JunieStats = Field(default_factory=JunieStats)
+    without_mcp: JunieStats = Field(default_factory=JunieStats)
+
 
 class TestQuestion(BaseModel):
     id: str
@@ -153,7 +158,9 @@ class TestQuestion(BaseModel):
     ground_truth_contexts: List[str] = Field(default_factory=list)
     key_facts: List[str] = Field(default_factory=list)
     key_entities: List[str] = Field(default_factory=list)
-    junie_stats: JunieStatsStrucutre = Field(default_factory=JunieStatsStrucutre)
+    claude_stats: ClaudeStats = Field(default_factory=ClaudeStats)
+    junie_stats: JunieStatsStructure = Field(default_factory=JunieStatsStructure)
+    comparisons: Optional[dict] = Field(default_factory=dict)
 
 
 class EvaluationCriteria(BaseModel):

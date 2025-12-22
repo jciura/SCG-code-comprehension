@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
 
 import httpx
 from loguru import logger
@@ -65,7 +65,7 @@ async def read_agent_instructions() -> str:
 
 @mcp.tool()
 async def ask_specific_nodes(
-        question: str, pairs: List[Tuple[str, str]], top_k: int, max_neighbors: int, neighbor_types: List[str],
+        question: str, pairs: List[List[str]], top_k: int, max_neighbors: int, neighbor_types: List[str],
         relation_types: List[str]) -> str:
     """
     #REMINDER: IF YOU HAVE CONTEXT (CODE) OF NODE FROM ANOTHER QUERY AND YOU CAN GIVE ANSWER DO NOT ASK ANOTHER QUESTION.
@@ -387,7 +387,7 @@ async def ask_general_question(question: str, kinds: List[str], keywords: List[s
 
 
 @mcp.tool()
-async def list_related_entities(question: str, pairs: List[Tuple[str, str]], limit: int, neighbor_types: List[str],
+async def list_related_entities(question: str, pairs: List[List[str]], limit: int, neighbor_types: List[str],
                                 relation_types: List[str]) -> str:
     """
     #REMINDER: IF YOU HAVE CONTEXT (CODE) OF NODE FROM ANOTHER QUERY AND YOU CAN GIVE ANSWER DO NOT ASK ANOTHER QUESTION.
