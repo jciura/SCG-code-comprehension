@@ -1,8 +1,10 @@
+import asyncio
 import os
 from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
+from loguru import logger
 
 from src.core.config import MODEL_NAME
 
@@ -22,28 +24,39 @@ async def call_llm(prompt: str) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
 
     payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": prompt}]
-            }
-        ],
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 2048,
+            "temperature": 0.3,
+            "maxOutputTokens": 100,
         }
     }
 
     try:
         response = await client.post(url, json=payload)
+
+        if response.status_code == 429:
+            logger.warning("Rate limit hit (429). Waiting 5s...")
+            await asyncio.sleep(5)
+            return "1"
+
         response.raise_for_status()
         result = response.json()
 
         candidates = result.get("candidates", [])
-        if not candidates:
-            return "Error: The model did not return any responses (content blocking possible)."
 
-        return candidates[0]["content"]["parts"][0]["text"].strip()
+        if not candidates:
+            logger.error(f"API returned no candidates. Full response: {result}")
+            return "1"
+
+        content = candidates[0].get("content", {})
+        parts = content.get("parts", [])
+
+        if not parts:
+            finish_reason = candidates[0].get("finishReason")
+            logger.warning(f"No parts in response. Finish reason: {finish_reason}")
+            return "1"
+
+        return parts[0].get("text", "1").strip()
 
     except httpx.HTTPStatusError as e:
         return f"Error HTTP: {e.response.status_code} - {e.response.text}"
