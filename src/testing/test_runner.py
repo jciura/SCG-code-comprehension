@@ -1,152 +1,116 @@
 import json
+
 from loguru import logger
 
 from testing.evaluator import RAGEvaluator
 from testing.judge import judge_answer
 from testing.token_counter import count_tokens
 
-JUDGE_HALLUCINATION_PROMPT = """You are a strict judge. Your task is to 
-evaluate if the answer contains any hallucinations.
-
-Judging rules:
-1. Use only the information present in the source context.
-2. Do not use external knowledge or assume missing details.
-3. A hallucination is information that is not present in the source context.
-
-Input:
-source context: {context}
-question: {question}
-answer: {answer}
-
-Scoring scale:
-0 - No hallucinations. All information in the answer is supported by the source context.
-1 - Minor hallucinations. Small details added that are not in context but are reasonable inferences.
-2 - Severe hallucinations. Major information not present in context.
-
-Output: Return 0, 1 or 2, and describe hallucination"""
-
-JUDGE_CORRECTNESS_PROMPT = """You are a strict judge. Your task is to 
-evaluate the answer to the question based only on the provided key facts that need to be included in the answer.
-
-Judging rules:
-1. Use only the information present in the source context.
-2. Do not use external knowledge or assume missing details.
-
-Input:
-key facts: {key_facts}
-question: {question}
-answer: {answer}
-
-Scoring scale:
-4 — Fully correct, all key facts are present in answer.
-3 — Most of key facts is present in answer.
-2 — Only half of key facts is present in answer.
-1 — Less than half of key facts is present in answer.
-
-Output: Return only integer from 1 to 4."""
 
 
-def evaluate_rag_metrics(ground_truth_file: str):
-    evaluator = RAGEvaluator(ground_truth_file)
+JUDGE_PROMPT = """You are an expert code reviewer.
+Your task is to compare two answers to the same question.
 
-    with open("metrics_log.jsonl", "a", encoding="utf-8") as f_out:
-        for q in evaluator.test_suite.questions:
-            question = q.question
-            answer = q.junie_stats.with_mcp.answer
-            retrieved_contexts = q.junie_stats.with_mcp.used_context
-            key_entities = q.key_entities
-            gt_contexts = q.ground_truth_contexts
+Focus only on the quality of the answers as presented to the user.
 
-            results = evaluator.rag_metrics.full_evaluation(
-                question, answer, retrieved_contexts, gt_contexts, key_entities)
+Question: {question}
+Answer A: {answer_a}
+Answer B: {answer_b}
 
-            record = {
-                "id": q.id,
-                "question": question,
-                "answer": answer,
-                "results": results
-            }
+Evaluate based on:
+1. How well the answer addresses the user's question
+2. Completeness 
+3. Structure and readability
+4. Logical flow
 
-            f_out.write(json.dumps(record, indent=2, ensure_ascii=False) + "\n")
+Scoring:
+- Score each answer from 1 (very bad) to 5 (excellent).
+- Choose "equal" only if the answers are comparable in overall quality.
+
+Output JSON only
+
+Output format:
+{{"winner":"A|B|equal","score_a":1-5,"score_b":1-5,"reasoning":"short explanation"}}
+
+"""
 
 
-def evaluate_answers(ground_truth_file: str) -> None:
+def compare_answers(question: str, answer_a: str, answer_b: str) -> dict:
+    if not answer_a or not answer_b:
+        return {"winner": "N/A", "score_a": 0, "score_b": 0, "reasoning": "Missing answer"}
+    prompt = JUDGE_PROMPT.format(
+        question=question,
+        answer_a=answer_a[:4000],
+        answer_b=answer_b[:4000])
+    response = judge_answer(prompt)
+    try:
+        result = json.loads(response)
+        return result
+    except Exception as e:
+        logger.error(f"JSON parse error: {e}")
+        logger.error(f"Response was: {response}")
+        return {"winner": "N/A", "score_a": 0, "score_b": 0, "reasoning": f"Parse error: {str(e)}"}
+
+
+def evaluate_all(ground_truth_file: str) -> None:
     with open(ground_truth_file, "r", encoding="utf-8") as f:
         ground_truth = json.load(f)
-
-    questions = ground_truth.get("questions", [])
-
-    for q in questions:
+    for q in ground_truth.get("questions", []):
         question = q["question"]
-        key_facts = q.get("key_facts", [])
-        ground_truth_context = q.get("ground_truth_contexts", [])
-        ground_truth_context_str = "\n".join(ground_truth_context)[:8000]
-
-        # WITH MCP
-        mcp_stats = q.get("junie_stats", {}).get("with_mcp", {})
-        mcp_answer = mcp_stats.get("answer", "")
-        mcp_context = mcp_stats.get("used_context", [])
-        if mcp_answer and mcp_answer.strip():
-            logger.info(f"[{q['id']}] with MCP")
-            context_str = "\n".join(mcp_context) if isinstance(mcp_context, list) else str(mcp_context)
-            context_str = context_str[:8000]
-
-            # Hallucination
-            hallucination_prompt = JUDGE_HALLUCINATION_PROMPT.format(
-                context=context_str, question=question, answer=mcp_answer)
-            hallucination_response = judge_answer(hallucination_prompt)
-            q["junie_stats"]["with_mcp"]["hallucination"] = hallucination_response
-            logger.info(f"MCP Hallucination: {hallucination_response}")
-
-            # Correctness
-            key_facts_str = "\n".join(f"- {f}" for f in key_facts)
-            correctness_prompt = JUDGE_CORRECTNESS_PROMPT.format(
-                key_facts=key_facts_str, question=question, answer=mcp_answer)
-            correctness_response = judge_answer(correctness_prompt)
-            q["junie_stats"]["with_mcp"]["correctness"] = correctness_response
-            logger.info(f"MCP Correctness: {correctness_response}")
-
-            # Tokens
-            q["junie_stats"]["with_mcp"]["tokens"] = count_tokens(mcp_answer, "gpt5")
-        else:
-            logger.warning(f"[{q['id']}] with MCP: no answer")
-
-        # WITHOUT MCP
-        nomcp_stats = q.get("junie_stats", {}).get("without_mcp", {})
-        nomcp_answer = nomcp_stats.get("answer", "")
-
-        if nomcp_answer and nomcp_answer.strip():
-            logger.info(f"[{q['id']}] without MCP")
-
-            # Hallucination
-            hallucination_prompt = JUDGE_HALLUCINATION_PROMPT.format(
-                context=ground_truth_context_str, question=question, answer=nomcp_answer)
-            hallucination_response = judge_answer(hallucination_prompt)
-            q["junie_stats"]["without_mcp"]["hallucination"] = hallucination_response
-            logger.info(f"No MCP Hallucination: {hallucination_response}")
-
-            # Correctness
-            key_facts_str = "\n".join(f"- {f}" for f in key_facts)
-            correctness_prompt = JUDGE_CORRECTNESS_PROMPT.format(
-                key_facts=key_facts_str, question=question, answer=nomcp_answer)
-            correctness_response = judge_answer(correctness_prompt)
-            q["junie_stats"]["without_mcp"]["correctness"] = correctness_response
-            logger.info(f"No MCP Correctness: {correctness_response}")
-
-            # Tokens
-            q["junie_stats"]["without_mcp"]["tokens"] = count_tokens(nomcp_answer, "gpt5")
-        else:
-            logger.warning(f"[{q['id']}] without MCP: no answer")
+        claude = q.get("claude_stats", {}).get("answer", "")
+        claude_context = (q.get("claude_stats", {})
+                          .get("used_context", []))
+        junie_mcp = (q.get("junie_stats", {})
+                     .get("with_mcp", {})
+                     .get("answer", ""))
+        junie_mcp_context = (q.get("junie_stats", {})
+                             .get("with_mcp", {})
+                             .get("used_context", []))
+        junie_nomcp = (q.get("junie_stats", {})
+                       .get("without_mcp", {})
+                       .get("answer", ""))
+        q["comparisons"] = {}
+        if claude and junie_mcp:
+            result = compare_answers(question, claude, junie_mcp)
+            result["winner"] = ({"A": "claude", "B": "junie_mcp"}
+                                .get(result.get("winner"),
+                            result.get("winner")))
+            q["comparisons"]["claude_vs_junie_mcp"] = result
+            logger.info(f"[{q['id']}] Claude vs Junie MCP: {result['winner']}")
+        if junie_mcp and junie_nomcp:
+            result = compare_answers(question, junie_mcp, junie_nomcp)
+            result["winner"] = ({"A": "with_mcp", "B": "without_mcp"}
+                                .get(result.get("winner"),
+                                     result.get("winner")))
+            q["comparisons"]["mcp_vs_no_mcp"] = result
+        if claude:
+            q["claude_stats"]["tokens"] = count_tokens(claude, "gpt5")
+        if claude_context:
+            if isinstance(claude_context, list):
+                context_str = "\n".join(claude_context)
+            else:
+                context_str = str(claude_context)
+            q["claude_stats"]["context_tokens"] = count_tokens(context_str, "gpt5")
+        if junie_mcp:
+            q["junie_stats"]["with_mcp"]["tokens"] = count_tokens(junie_mcp, "gpt5")
+        if junie_mcp_context:
+            if isinstance(junie_mcp_context, list):
+                context_str = "\n".join(junie_mcp_context)
+            else:
+                context_str = str(junie_mcp_context)
+            q["junie_stats"]["with_mcp"]["context_tokens"] = count_tokens(context_str, "gpt5")
+        if junie_nomcp:
+            q["junie_stats"]["without_mcp"]["tokens"] = count_tokens(junie_nomcp, "gpt5")
 
     with open(ground_truth_file, "w", encoding="utf-8") as f_out:
         json.dump(ground_truth, f_out, indent=2, ensure_ascii=False)
 
 
-def get_ground_context(label: str, node_embedding_file):
+def get_ground_context(node: str, node_embedding_file):
     with open(node_embedding_file, "r", encoding="utf-8") as f_emb:
         embeddings = json.load(f_emb)
         for emb in embeddings:
-            if emb["label"] == label:
+            if emb["node"] == node:
                 return emb["code"]
         return None
 
@@ -167,7 +131,38 @@ def add_ground_context(ground_truth_file: str, node_embedding_file: str) -> None
     with open(ground_truth_file, "w", encoding="utf-8") as f_out:
         json.dump(ground_truth, f_out, indent=2, ensure_ascii=False)
 
+
+def evaluate_rag_metrics(ground_truth_file: str):
+    evaluator = RAGEvaluator(ground_truth_file)
+    with open("metrics_log.jsonl", "a", encoding="utf-8") as f_out:
+        for q in evaluator.test_suite.questions:
+            question = q.question
+            key_entities = q.key_entities
+            gt_contexts = q.ground_truth_contexts
+            record = {
+                "id": q.id,
+                "question": question,
+                "ragas": {}
+            }
+            claude_answer = q.claude_stats.answer if q.claude_stats else ""
+            claude_context = q.claude_stats.used_context if q.claude_stats else []
+            if claude_answer and claude_context:
+                results = evaluator.rag_metrics.full_evaluation(
+                    question, claude_answer, claude_context, gt_contexts, key_entities)
+                record["ragas"]["claude"] = results
+                logger.info(f"[{q.id}] Claude RAGAS: {results['ragas']}")
+            junie_answer = q.junie_stats.with_mcp.answer if q.junie_stats else ""
+            junie_context = q.junie_stats.with_mcp.used_context if q.junie_stats else []
+            if junie_answer and junie_context:
+                results = evaluator.rag_metrics.full_evaluation(
+                    question, junie_answer, junie_context, gt_contexts, key_entities)
+                record["ragas"]["junie_mcp"] = results
+                logger.info(f"[{q.id}] Junie MCP RAGAS: {results['ragas']}")
+
+            f_out.write(json.dumps(record, indent=2, ensure_ascii=False) + "\n")
+
+
 if __name__ == "__main__":
-    add_ground_context("ground_truth_killbill.json", "../../data/embeddings/node_embedding.json")
+    # add_ground_context("ground_truth_killbill.json", "../../data/embeddings/node_embedding.json")
     evaluate_rag_metrics("ground_truth_killbill.json")
-    evaluate_answers("ground_truth_killbill.json")
+    # evaluate_all("ground_truth_killbill.json")

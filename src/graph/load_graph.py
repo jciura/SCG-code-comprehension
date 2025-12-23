@@ -3,7 +3,7 @@ from typing import Any, Dict
 
 import networkx as nx
 
-SKIP_NODE_KINDS = {"PARAMETER", "VARIABLE", "VALUE"}
+SKIP_NODE_KINDS = {"PARAMETER", "VARIABLE", "VALUE", "SELF_PARAMETER"}
 
 def load_gdf(filepath: str) -> nx.DiGraph:
     """
@@ -69,9 +69,6 @@ def load_gdf(filepath: str) -> nx.DiGraph:
                 continue
 
             G.add_edge(source, target, **attr_dict)
-            edge_type = attr_dict.get("type")
-            if edge_type in ["CALL", "TYPE", "RETURN_TYPE", "DECLARATION"] and not G.has_edge(target, source):
-                G.add_edge(target, source, **attr_dict, reversed="true")
 
     return G
 

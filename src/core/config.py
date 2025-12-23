@@ -8,8 +8,7 @@ default_classifier_model = "sentence-transformers/all-MiniLM-L6-v2"
 default_chroma_path = os.path.join(PROJECT_ROOT, "data", "embeddings", "chroma_storage")
 default_collection_name = "scg_embeddings"
 
-OLLAMA_API_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "llama3.1:8b"
+MODEL_NAME = "gemini-2.5-flash"
 NODE_EMBEDDINGS = os.path.join(PROJECT_ROOT, "data", "embeddings", "node_embedding.json")
 NODE_CONTEXT_HISTORY = os.path.join(PROJECT_ROOT, "data", "embeddings", "node_context_history.json")
 CODEBERT_MODEL_NAME = "microsoft/codebert-base"

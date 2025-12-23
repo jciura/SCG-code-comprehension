@@ -9,7 +9,6 @@ from context.context_builder import build_context
 from core.models import IntentAnalysis
 from graph.NeighborTypeEnum import NeighborTypeEnum
 from graph.QueryTopMode import QueryTopMode
-from src.clients.llm_client import call_llm
 
 
 def get_metric_value(node: Dict[str, Any], metric: str) -> float:
@@ -25,16 +24,12 @@ def get_metric_value(node: Dict[str, Any], metric: str) -> float:
         Metric value for the node
     """
     if metric == "number_of_neighbors":
-        related_entities_str = node.get("related_entities", "")
-        try:
-            related_entities = (
-                json.loads(related_entities_str)
-                if isinstance(related_entities_str, str)
-                else related_entities_str
-            )
-        except (json.JSONDecodeError, TypeError):
-            logger.debug("Failed to parse related_entities, using empty list.")
-            related_entities = []
+        related_entities = node.get("related_entities", [])
+
+        related_entities = json.loads(related_entities)
+
+        logger.info(f"Related entities: {related_entities}")
+        logger.info(len(related_entities))
         return len(related_entities)
     else:
         return float(node.get(metric, 0.0))
@@ -59,18 +54,19 @@ async def get_top_nodes_context(
     Returns:
         Top nodes with metadata and metric values
     """
+    logger.info(f"Params: {params}")
     query_mode = params.get("query_mode", QueryTopMode.LIST_ONLY)
+    query_mode = QueryTopMode(query_mode.lower())
     kinds = params.get("kinds", "ANY")
     if isinstance(kinds, str):
         kinds = [kinds]
     kinds = [NeighborTypeEnum[kind.upper()] for kind in kinds]
     metric = params.get("metric", "combined")
     limit = params.get("limit", 10)
-    if limit.isnumeric():
+    if isinstance(limit, str) and limit != "all":
         limit = int(limit)
     exact_metric_value = params.get("exact_metric_value", 0)
     order = params.get("order", "desc")
-
     if isinstance(query_mode, str):
         try:
             query_mode = QueryTopMode(query_mode)
@@ -81,7 +77,17 @@ async def get_top_nodes_context(
     logger.info(f"Params: {query_mode, kinds, metric, limit, exact_metric_value, order}")
     start_time = time.time()
 
-    results = collection.get(include=["metadatas", "documents"])
+    where = None
+
+    if NeighborTypeEnum.ANY not in kinds:
+        where = {
+            "kind": {"$in": [k.value for k in kinds]}
+        }
+
+    results = collection.get(
+        include=["metadatas", "documents"],
+        where=where
+    )
 
     nodes = [
         {
@@ -93,8 +99,7 @@ async def get_top_nodes_context(
         for i in range(len(results["ids"]))
     ]
     if limit == 'all':
-        top_nodes = [node for node in nodes if (NeighborTypeEnum[node["metadata"].get(
-            "kind").upper()] in kinds or NeighborTypeEnum.ANY in kinds) and node["metric_value"] == exact_metric_value]
+        top_nodes = [node for node in nodes if node["metric_value"] == exact_metric_value]
     else:
         top_nodes = sorted(
             (node for node in nodes if
@@ -106,7 +111,7 @@ async def get_top_nodes_context(
     logger.debug(f"MODE: {query_mode}")
     if query_mode == QueryTopMode.LIST_ONLY:
         context = " ".join(
-            f"{node.get('metadata', {}).get('label', '')} - {node.get('metric_value'):.2f}"
+            f"{node.get('metadata', {}).get('label', '')} - {node.get('metadata', '').get('kind', '')} - {node.get('metadata', '').get('uri', '')} - Metric value: {node.get('metric_value'):.2f}"
             for node in top_nodes
         )
     else:
@@ -123,7 +128,6 @@ async def get_top_nodes_context(
         ]
         context = build_context(top_nodes, "definition", 1.0, question=question, target_method=None)
 
-    logger.debug(f"Top query context: {context}")
     end_time = time.time()
     elapsed_ms = (end_time - start_time) * 1000
     logger.debug(f"Completed in: {elapsed_ms:.1f}ms")

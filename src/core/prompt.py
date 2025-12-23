@@ -154,6 +154,8 @@ def get_task_instructions(intent_category: IntentCategory) -> str:
 
     Output:
     - A numbered list of names only.
+    
+    RULES: DON'T ASK THE SAME QUESTION IF YOU GOT ANSWER. JUST LIST NODES THAT YOU GET.
     """
 
     else:

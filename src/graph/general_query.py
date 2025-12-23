@@ -1,29 +1,28 @@
 import json
 import re
 import time
-from typing import Any, Dict, List, Set, Tuple, Coroutine
+from typing import Any, Dict, List, Set, Tuple
+
 from loguru import logger
+
 from context.context_builder import build_context
+from core.config import COMBINED_MAX
 from core.models import IntentAnalysis, IntentCategory
-from graph.generate_embeddings_graph import generate_embeddings_graph
-from graph.reranking import rerank_results
 from graph.retrieval_utils import is_child_of
 from src.clients.llm_client import call_llm
 from src.graph.usage_finder import find_usage_nodes
-from core.config import COMBINED_MAX
 
 max_usage_nodes_for_context = 3
 
 
 def _filter_candidates(
-    all_nodes: Dict[str, Any], kinds: Set[str], keywords: List[str], kind_weights: Dict[str, float]
+        all_nodes: Dict[str, Any], keywords: List[str], kind_weights: Dict[str, float]
 ) -> List[Tuple[str, Dict[str, Any], str, float]]:
     """
     Filters and scores candidate nodes based on LLM analysis.
 
     Args:
         all_nodes: All nodes from collection
-        kinds: Set of relevant node kinds (CLASS, METHOD, etc.)
         keywords: List of keywords to search for
         kind_weights: Weights for different node kinds
 
@@ -38,10 +37,7 @@ def _filter_candidates(
         doc = all_nodes["documents"][i] or ""
         kind = metadata.get("kind", "").upper()
 
-        if kinds and kind not in kinds:
-            continue
-
-        score = 1 if (not kinds or kind in kinds) else 0
+        score = 1
         for kw in keywords:
             if kw in node_id.lower():
                 score += kind_weights.get(kind, 1.0)
@@ -95,7 +91,6 @@ async def _score_node(
         return []
 
 
-# Wywalić - exapand_definition_neighbors z retrieval_utils to to samo, tylko trzeba podać ANY
 def expand_node_with_neighbors(
     node_id: str,
     metadata: Dict[str, Any],
@@ -116,22 +111,20 @@ def expand_node_with_neighbors(
     Returns:
         List of neighbor nodes with scores
     """
-    neighbors_data = []
+    related_entities_raw = metadata.get("related_entities")
 
-    related_entities_str = metadata.get("related_entities", "")
-    try:
-        related_entities = (
-            json.loads(related_entities_str)
-            if isinstance(related_entities_str, str)
-            else related_entities_str
-        )
-    except (json.JSONDecodeError, TypeError):
-        related_entities = []
+    related_entities = json.loads(related_entities_raw)
+    neighbors_to_fetch = []
 
-    neighbors_to_fetch = [nid for nid in related_entities[:max_neighbors] if nid not in seen_nodes]
+    for entity_id, _ in related_entities:
+        if entity_id not in seen_nodes:
+            seen_nodes.add(entity_id)
+            neighbors_to_fetch.append(entity_id)
+            if len(neighbors_to_fetch) >= max_neighbors:
+                break
 
     if not neighbors_to_fetch:
-        return neighbors_data
+        return []
 
     neighbors = collection.get(ids=neighbors_to_fetch, include=["metadatas", "documents"])
 
@@ -144,6 +137,7 @@ def expand_node_with_neighbors(
         reverse=True
     )
 
+    neighbors_data = []
     for neighbor_id, neighbor_metadata, neighbor_doc in combined_neighbors:
         if neighbor_id in seen_nodes:
             continue
@@ -155,6 +149,7 @@ def expand_node_with_neighbors(
         neighbors_data.append(
             (-1, {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_doc})
         )
+
     return neighbors_data
 
 
@@ -163,7 +158,7 @@ async def get_general_nodes_context(
     analysis: IntentAnalysis,
     model_name: str,
     collection: Any,
-        code_snippet_limit: int = 400,
+        code_snippet_limit: int = 800,
     batch_size: int = 5,
     **params,
 ) -> None | tuple[list[Any], str] | list[tuple[int, dict[str, Any]]]:
@@ -198,32 +193,20 @@ async def get_general_nodes_context(
         "VARIABLE": 0.8,
         "PARAMETER": 0.5,
     }
-    classification_prompt = f"""
-    User question: "{question}"
 
-    Your task:
-    1. Determine which node types (CLASS, METHOD, VARIABLE, PARAMETER, CONSTRUCTOR) 
-        are most relevant
-    2. Provide 5-10 keywords that should appear in node names
-
-    Return ONLY valid JSON format:
-    {{"kinds": ["CLASS", "METHOD"], "keywords": ["frontend","controller","view"]}}
-
-    No comments, only JSON. Include that question can be in polish and english.
-    """
-    questionAnalysis = await call_llm(classification_prompt)
-    logger.debug(f"LLM analysis: {questionAnalysis}")
-    try:
-        questionAnalysis = json.loads(questionAnalysis)
-    except (json.JSONDecodeError, TypeError):
-        questionAnalysis = {"kinds": [], "keywords": []}
-
-    kinds = set([k.upper() for k in questionAnalysis.get("kinds", [])])
-    keywords = [kw.lower() for kw in questionAnalysis.get("keywords", [])]
+    kinds = [k.upper() for k in params.get("kinds", [])]
+    keywords = [kw.lower() for kw in params.get("keywords", [])]
     logger.debug(f"kinds: {kinds}, keywords: {keywords}")
 
-    all_nodes = collection.get(include=["metadatas", "documents"])
-    candidate_nodes = _filter_candidates(all_nodes, kinds, keywords, kind_weights)
+    if len(kinds) == 1:
+        where_clause = {"kind": kinds[0]}
+    elif len(kinds) > 1:
+        where_clause = {"kind": {"$in": kinds}}
+    else:
+        where_clause = None
+
+    all_nodes = collection.get(include=["metadatas", "documents"], where=where_clause)
+    candidate_nodes = _filter_candidates(all_nodes, keywords, kind_weights)
 
     if not candidate_nodes:
         logger.debug("No candidates found, selecting fallback top-5 by combined score")

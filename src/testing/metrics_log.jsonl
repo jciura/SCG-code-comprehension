@@ -1,17 +1,30 @@
 {
-  "id": "Q001",
+  "id": "Q01",
   "question": "Describe the DefaultAccount class",
-  "answer": "### DefaultAccount Class\n\n`DefaultAccount` is a concrete implementation class in the `org.killbill.billing.account.api` package that extends `EntityBase` and implements the `Account` interface. It serves as the default representation of a customer account in the Kill Bill billing system.\n\n### Fields\n\nThe class contains 21 private final fields representing account attributes:\n\n| Field | Type | Purpose |\n|------|------|---------|\n| `externalKey` | `String` | External identifier for the account |\n| `email` | `String` | Email address |\n| `name` | `String` | Account holder's name |\n| `firstNameLength` | `Integer` | Length of the first name |\n| `currency` | `Currency` | Account currency |\n| `parentAccountId` | `UUID` | Reference to parent account |\n| `isPaymentDelegatedToParent` | `Boolean` | Whether payments are delegated to parent |\n| `billCycleDayLocal` | `Integer` | Billing cycle day of month |\n| `paymentMethodId` | `UUID` | Associated payment method |\n| `referenceTime` | `DateTime` | Reference timestamp |\n| `timeZone` | `DateTimeZone` | Account timezone |\n| `locale` | `String` | Locale setting |\n| `address1`, `address2` | `String` | Address lines |\n| `companyName` | `String` | Company name |\n| `city`, `stateOrProvince`, `country`, `postalCode` | `String` | Address components |\n| `phone` | `String` | Phone number |\n| `notes` | `String` | Account notes |\n| `isMigrated` | `Boolean` | Migration flag |\n\n### Constructors\n\nThe class provides four constructor overloads:\n\n1. `DefaultAccount(UUID id, AccountData data)` — Updates an existing account using `AccountData`\n2. `DefaultAccount(UUID id, String externalKey, ...)` — Full field constructor used for testing and updates\n3. `DefaultAccount(UUID id, DateTime createdDate, DateTime updatedDate, ...)` — Master constructor that initializes all fields with default handling (sets `isPaymentDelegatedToParent` to `false` if null, uses `DEFAULT_BILLING_CYCLE_DAY_LOCAL` if `billCycleDayLocal` is null)\n4. `DefaultAccount(AccountModelDao accountModelDao)` — Constructs from a DAO model object\n\n### Key Methods\n\n- Getter methods: All fields have corresponding `@Override` getter methods implementing the `Account` interface\n- `toMutableAccountData()` — Returns a `DefaultMutableAccountData` instance for modification\n- `mergeWithDelegate(Account currentAccount)` — Deprecated method that merges new values with an existing account, preserving immutable fields (`externalKey`, `currency`) while updating mutable fields\n- `validateAccountUpdateInput(Account currentAccount, boolean ignoreNullInput)` — Validates that immutable fields (`externalKey`, `currency`, `billCycleDayLocal`, `timeZone`, `referenceTime`) are not being changed\n- `getFixedOffsetTimeZone()` — Delegates to `AccountDateTimeUtils` for timezone handling\n- Standard methods: `equals()`, `hashCode()`, and `toString()` implementations\n\n### Related Classes\n\n- `EntityBase` — Parent class providing base entity functionality\n- `Account` — Interface this class implements\n- `DefaultMutableAccountData` — Mutable version used for updates\n- `AccountModelDao` — DAO layer representation",
-  "results": {
-    "ragas": {
-      "context_recall": 1.0,
-      "context_precision": 1.0,
-      "faithfulness": 0.884,
-      "answer_relevance": 0.872,
-      "ragas_score": 0.915
+  "ragas": {
+    "claude": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.889,
+        "ragas_score": 0.96
+      },
+      "optional_metrics": {
+        "context_entity_recall": 1.0
+      }
     },
-    "optional_metrics": {
-      "context_entity_recall": 1.0
+    "junie_mcp": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.0,
+        "ragas_score": 0.0
+      },
+      "optional_metrics": {
+        "context_entity_recall": 1.0
+      }
     }
   }
 }

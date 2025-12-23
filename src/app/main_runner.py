@@ -2,7 +2,6 @@ import json
 import re
 import shutil
 import subprocess
-from collections import defaultdict
 from pathlib import Path
 
 from loguru import logger
@@ -10,7 +9,6 @@ from loguru import logger
 from src.clients.chroma_client import get_or_create_collection
 from src.core.config import (
     CODEBERT_MODEL_NAME,
-    ccn_test,
     default_chroma_path,
     default_collection_name,
     partition,
@@ -105,13 +103,7 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
         Exception: If embedding generation or data insertion into the Chroma collection fails.
     """
     scg = load_gdf(scg_test)
-    # ccn = load_gdf(ccn_test)
     importance_scores = extract_scores(partition)
-
-    # reverse_ccn_map = defaultdict(list)
-    # for node_id in ccn.nodes():
-    #     for neighbor in ccn.neighbors(node_id):
-    #         reverse_ccn_map[neighbor].append(node_id)
 
     nodes_info = []
     texts_for_embedding = []
@@ -138,19 +130,20 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
     max_combined = 0
     for info, emb in zip(nodes_info, embeddings):
         node_id = info["node_id"]
-        scg_neighbors = set(scg.neighbors(node_id)) if scg.has_node(node_id) else set()
-        #used_by = set(reverse_ccn_map[node_id]) if node_id in reverse_ccn_map else set()
 
-        # extra_related = set()
-        # if info["kind"] == "METHOD":
-        #     class_id = node_id.split("(")[0].rsplit(".", 1)[0]
-        #     if class_id in reverse_ccn_map:
-        #         extra_related.update(reverse_ccn_map[class_id])
-        #
+        related_entities = []
+        for neighbor_id in set(scg.successors(node_id)) | set(scg.predecessors(node_id)):
+            if scg.has_edge(node_id, neighbor_id):
+                type = scg[node_id][neighbor_id].get("type", "")
+                related_entities.append([neighbor_id, type])
+
+            if scg.has_edge(neighbor_id, node_id):
+                type = scg[neighbor_id][node_id].get("type", "")
+                related_entities.append([neighbor_id, type + "_BY"])
 
         related_entities = sorted(
-            scg_neighbors,
-            key=lambda nid: importance_scores["combined"].get(nid, 0.0),
+            related_entities,
+            key=lambda x: importance_scores["combined"].get(x[0], 0.0),
             reverse=True,
         )
 
@@ -204,5 +197,5 @@ if __name__ == "__main__":
 
     project_path = Path(args.project).resolve()
     program_graph_folder = Path(__file__).parent.parent.parent / "data/graph"
-    #run_scg_cli(project_path, program_graph_folder)
+    run_scg_cli(project_path, program_graph_folder)
     generate_embeddings_graph_main(project_path)

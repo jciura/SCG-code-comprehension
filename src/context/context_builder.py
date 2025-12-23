@@ -20,7 +20,6 @@ from context.context_priority import (
 )
 from src.core.intent_analyzer import IntentCategory, get_intent_analyzer
 
-
 PHASE2_CHAR_THRESHOLD = 0.8
 PHASE3_CHAR_THRESHOLD = 0.6
 PHASE3_STOP_THRESHOLD = 0.9
@@ -363,6 +362,7 @@ def build_context(
             logger.debug(f"Added {node_id} ({kind}), chars: {section_chars}")
             return True
 
+        logger.debug(f"Not added {node_id} ({kind}), chars: {section_chars}")
         return False
     scored_nodes = []
     for score, node_data in nodes:

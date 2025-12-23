@@ -83,6 +83,7 @@ class IntentAnalyzer:
                     "najważniejsze klasy", "główne klasy", "centralne klasy",
                     "największe klasy", "najbardziej połączone klasy",
                     "najmniej ważne klasy", "least", "smallest classes",
+                    "list", "show"
                 ],
                 "patterns": [
                     r"najważniejsz.*klas", r"główn.*klas", r"centraln.*klas",
@@ -90,48 +91,48 @@ class IntentAnalyzer:
                     r"most\s+(connected|important|significant|central|biggest|dominant).*class",
                     r"key\s+class", r"core\s+class", r"main\s+class", r"najmniejsz.*klas",
                 ],
-                "weight": 1.2,
+                "weight": 2.0,
             },
         }
         self.context_limits = {
             IntentCategory.DEFINITION: {
-                "max_chars": 300000,
+                "max_chars": 500000,
                 "base_nodes": 5,
                 "category_nodes": 7,
                 "fill_nodes": 4
             },
             IntentCategory.IMPLEMENTATION: {
-                "max_chars": 400000,
+                "max_chars": 500000,
                 "base_nodes": 7,
                 "category_nodes": 6,
                 "fill_nodes": 5
             },
             IntentCategory.USAGE: {
-                "max_chars": 500000,
+                "max_chars": 600000,
                 "base_nodes": 5,
                 "category_nodes": 6,
                 "fill_nodes": 4
             },
             IntentCategory.TESTING: {
-                "max_chars": 100000,
+                "max_chars": 400000,
                 "base_nodes": 6,
                 "category_nodes": 6,
                 "fill_nodes": 5
             },
             IntentCategory.EXCEPTION: {
-                "max_chars": 100000,
+                "max_chars": 400000,
                 "base_nodes": 6,
                 "category_nodes": 5,
                 "fill_nodes": 4
             },
             IntentCategory.GENERAL: {
-                "max_chars": 500000,
+                "max_chars": 600000,
                 "base_nodes": 10,
                 "category_nodes": 4,
                 "fill_nodes": 4
             },
             IntentCategory.TOP: {
-                "max_chars": 500000,
+                "max_chars": 600000,
                 "base_nodes": 8,
                 "category_nodes": 5,
                 "fill_nodes": 4

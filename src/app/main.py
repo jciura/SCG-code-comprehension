@@ -5,6 +5,7 @@ import os
 import time
 
 import httpx
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
@@ -16,9 +17,7 @@ from graph.specific_nodes import get_specific_nodes_context
 from graph.top_nodes import get_top_nodes_context
 from src.core.config import (
     CODEBERT_MODEL_NAME,
-    MODEL_NAME,
     NODE_CONTEXT_HISTORY,
-    OLLAMA_API_URL,
     projects,
 )
 from src.core.intent_analyzer import get_intent_analyzer
@@ -28,10 +27,9 @@ from src.core.models import (
     PrompRequest,
     SimpleRAGResponse,
 )
-from dotenv import load_dotenv
+
 load_dotenv()
 from src.core.prompt import build_prompt
-from testing.judge import judge_answer
 from testing.token_counter import count_tokens
 
 
@@ -92,62 +90,6 @@ def log_metrics(metrics: PerformanceMetrics) -> None:
         f"context_len={metrics.context_length}, "
         f"response_len={metrics.response_length}"
     )
-
-
-async def get_llm_response(prompt: str) -> str:
-    """
-    Sends a prompt to the Ollama API and returns the model's response.
-
-    Builds and sends a JSON payload with model parameters, validates the response,
-    and handles HTTP and request-related errors gracefully.
-
-    Args:
-        prompt (str): The input text prompt to send to the language model.
-
-    Returns:
-        str: The generated text response from the model.
-
-    Raises:
-        HTTPException: If the Ollama API returns an error, invalid format,
-            or an empty response.
-    """
-    payload = {
-        "model": MODEL_NAME,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"temperature": 0.0, "top_p": 0.9, "repeat_penalty": 1.1},
-    }
-    try:
-        response = await client.post(OLLAMA_API_URL, json=payload)
-        response.raise_for_status()
-        result = response.json()
-
-        if "response" not in result:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Invalid response format from Ollama",
-            )
-
-        answer = result["response"]
-        if not answer or not answer.strip():
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY, detail="Empty response from Ollama"
-            )
-        return answer.strip()
-    except httpx.HTTPStatusError as exc:
-        error_detail = f"Ollama API error {exc.response.status_code}"
-        try:
-            error_details = exc.response.json()
-            error_detail += f": {error_details}"
-        except Exception:
-            error_detail += f": {exc.response.text}"
-        logger.error(error_detail)
-        raise HTTPException(status_code=exc.response.status_code, detail=error_detail)
-    except httpx.RequestError as exc:
-        logger.error(f"Request error while calling Ollama API: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Request error: {str(exc)}"
-        )
 
 
 @app.post("/ask", response_model=SimpleRAGResponse)
@@ -389,6 +331,7 @@ async def retrieve_context(question: str, node_func, params: dict):
             context = str(context)
 
         logger.info(f"Context: {context}")
+        # Zmienić liczenie na codebert
         context_tokens = count_tokens(context, "llama")
         prompt_tokens = count_tokens(prompt, "llama")
         logger.info(f"Tokens: context: {context_tokens}, prompt: {prompt_tokens}")
@@ -417,7 +360,7 @@ async def startup_event():
     """
     Application startup event handler.
 
-    Initializes models, evaluator, and verifies the Ollama server connection.
+    Initializes models, evaluator.
     Keeps the selected model in memory and performs a warm-up request to
     reduce first-call latency.
 
@@ -425,44 +368,6 @@ async def startup_event():
     """
     logger.info("Starting RAG application...")
     warm_up_models()
-
-
-    try:
-        logger.info("Checking Ollama server connection...")
-        health_response = await client.get("http://localhost:11434/api/tags")
-        health_response.raise_for_status()
-        logger.info("Ollama server is running")
-    except httpx.ConnectError:
-        logger.error("Cannot connect to Ollama server")
-        return
-    except Exception as e:
-        logger.warning(f"Health check failed: {e}")
-
-    try:
-        keep_alive_payload = {"model": MODEL_NAME, "prompt": "", "keep_alive": -1}
-        await client.post(OLLAMA_API_URL, json=keep_alive_payload)
-        logger.info(f"Model {MODEL_NAME} configured to stay in memory permanently")
-    except Exception as e:
-        logger.warning(f"Failed to configure model persistence: {e}")
-
-    try:
-        start_time = time.time()
-        warmup_payload = {
-            "model": MODEL_NAME,
-            "prompt": "This is a warmup.",
-            "stream": False,
-            "options": {"num_predict": 5},
-        }
-
-        response = await client.post(OLLAMA_API_URL, json=warmup_payload)
-        response.raise_for_status()
-
-        warmup_time = time.time() - start_time
-        logger.info(f"Model {MODEL_NAME} warmed up successfully in {warmup_time:.2f} seconds")
-
-    except Exception as e:
-        logger.error(f"Model warmup failed: {e}")
-
     logger.info("RAG application startup completed")
 
 
