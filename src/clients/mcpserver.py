@@ -212,7 +212,10 @@ async def ask_top_nodes(question: str, query_mode: str, kinds: List[str], metric
            - If not sure → order = "desc"
 
 
-    ### CRITICAL RESPONSE STRATEGY (AFTER TOOL EXECUTION)
+    ### 🚨 CRITICAL INSTRUCTION: STOP AND ANSWER 🚨
+
+    **IF YOU RECEIVE CONTEXT FROM THIS TOOL, DO NOT CALL IT AGAIN FOR THE SAME NODE.**
+
     1. **Format List**: Present the results clearly (e.g., a numbered Markdown list).
     2. **Interpret**: Explain *why* these nodes are top-ranked based on the metric.
     3. **Suggest Next Step**: If you used `list_only`, the user cannot see the implementation. You MUST suggest analyzing the #1 result.
@@ -272,7 +275,10 @@ async def ask_general_question(question: str, kinds: List[str], keywords: List[s
 
 
     ---
-    ### CRITICAL RESPONSE STRATEGY (AFTER TOOL EXECUTION)
+    ### 🚨 CRITICAL INSTRUCTION: STOP AND ANSWER 🚨
+
+    **IF YOU RECEIVE CONTEXT FROM THIS TOOL, DO NOT CALL IT AGAIN FOR THE SAME NODE.**
+
     1. **Synthesize Architecture**: Combine the returned nodes to describe the flow or system design.
     2. **Highlight Gaps**: A general query is rarely perfect. Admit what parts of the flow seem to be missing.
     3. **Suggest Next Step**: Pick the most interesting specific class found in this search and suggest drilling down.
@@ -347,7 +353,10 @@ async def list_related_entities(question: str, pairs: List[List[str]], limit: in
         - Question: "What are all neighbors of class X?" - `relation_types` is not specified -> ["ANY"]
         - Unsure what to choose - choose ["ANY"]
 
-    ### CRITICAL RESPONSE STRATEGY (AFTER TOOL EXECUTION)
+    ### 🚨 CRITICAL INSTRUCTION: STOP AND ANSWER 🚨
+
+    **IF YOU RECEIVE CONTEXT FROM THIS TOOL, DO NOT CALL IT AGAIN FOR THE SAME NODE.**
+
     1. **Summarize Relationships**: Group the connections (e.g., "Method X is called by these 3 controllers...").
     2. **Suggest Next Step**: Ask if the user wants to investigate the implementation of a specific related entity.
        *Example:* "Class X calls `DatabaseService` frequently. Would you like to inspect `DatabaseService` to see how it handles the query?"
