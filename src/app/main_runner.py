@@ -27,18 +27,6 @@ def run_scg_cli(project_path: Path, output_folder: Path):
     # logger.info(f"Running: {' '.join(gen_cmd)}")
     # subprocess.run(gen_cmd, check=True, cwd=project_path, shell=True)
 
-    ccn_cmd = ["scg-cli", "export", "-g", "CCN", "-o", "gdf", str(project_path)]
-    logger.info(f"Running: {' '.join(ccn_cmd)}")
-    subprocess.run(ccn_cmd, check=True, cwd=project_path, shell=True)
-
-    generated_ccn_file = project_parent / f"{project_name}.gdf"
-    moved_ccn = output_folder / "ccnTest.gdf"
-    if generated_ccn_file.exists():
-        shutil.move(str(generated_ccn_file), str(moved_ccn))
-        logger.info(f"CCN graph moved to {moved_ccn}")
-    else:
-        logger.error(f"CCN graph not found at {moved_ccn}")
-
     scg_cmd = ["scg-cli", "export", "-g", "SCG", "-o", "gdf", str(project_path)]
     logger.info(f"Running: {' '.join(scg_cmd)}")
     subprocess.run(scg_cmd, check=True, cwd=project_path, shell=True)

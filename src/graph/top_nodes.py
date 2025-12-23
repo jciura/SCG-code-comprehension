@@ -126,7 +126,7 @@ async def get_top_nodes_context(
             )
             for n in top_nodes
         ]
-        context = build_context(top_nodes, "definition", 1.0, question=question, target_method=None)
+        context = build_context(top_nodes, "definition", 1.0, len(top_nodes), question=question, target_method=None)
 
     end_time = time.time()
     elapsed_ms = (end_time - start_time) * 1000

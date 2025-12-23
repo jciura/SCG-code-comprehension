@@ -7,6 +7,9 @@ MAX_TESTING_LINES = 300
 MAX_IMPLEMENTATION_LINES = 350
 
 
+def is_scala(node_id: str) -> bool:
+    return "/" in node_id or node_id.endswith(".scala")
+
 def filter_definition_code(code: str, node_id: str, kind: str) -> str:
     """
     Filters and summarizes definition-related code sections.
@@ -31,7 +34,7 @@ def filter_definition_code(code: str, node_id: str, kind: str) -> str:
     definition_lines = []
     lines = code.split("\n")
     modifiers = ["public ", "private ", "protected "]
-    scala_mode = False
+    scala_mode = is_scala(node_id)
 
     if "." in node_id:
         class_name = node_id.split(".")[-1]
@@ -55,15 +58,12 @@ def filter_definition_code(code: str, node_id: str, kind: str) -> str:
             definition_lines.append(line_clean)
             continue
         if scala_mode:
-            line_no_comments = re.sub(r'^\*/?\s*', '', line_clean).strip()
-            if re.match(r'^(abstract\s+class|class|trait|object)\b', line_no_comments):
-                definition_lines.append(line_clean)
-                continue
-            if re.match(r'^def(\s|this\()', line_no_comments):
-                signature = line_clean.rstrip("{").strip()
+            if re.search(r'\bdef\s+[\w<\[]+', line_clean) or line_clean.startswith("def this("):
+                signature = line_clean.split("=")[0].strip()
                 if not signature.endswith(";"):
                     signature += ";"
                 definition_lines.append(signature)
+                definition_lines.append(line_clean)
                 continue
         else:
             has_modifier = any(line_clean.startswith(mod) for mod in modifiers)
@@ -84,7 +84,7 @@ def filter_definition_code(code: str, node_id: str, kind: str) -> str:
     return "\n".join(definition_lines[:MAX_DEFINITION_LINES])
 
 
-def filter_exception_code(code: str) -> str:
+def filter_exception_code(code: str, node_id: str) -> str:
     """
     Extracts exception-related lines from code.
 
@@ -93,6 +93,7 @@ def filter_exception_code(code: str) -> str:
 
     Args:
         code: Code text to analyze
+        node_id: Identifier of the graph node (used to infer class name)
 
     Returns:
         Extracted exception-related lines joined as a string
@@ -102,11 +103,22 @@ def filter_exception_code(code: str) -> str:
 
     exception_lines = []
     lines = code.split("\n")
+    scala_mode = is_scala(node_id)
+
     for line in lines:
         line_clean = line.strip()
+        line_clean = re.sub(r'^/\*\*?\s*', '', line_clean)
+        line_clean = re.sub(r'\*/', '', line_clean)
+        if not line_clean or line_clean.startswith("//"):
+            continue
         if "throw new" in line_clean or "orElseThrow(" in line_clean:
             exception_lines.append(line_clean)
             continue
+
+        if scala_mode and "throw " in line_clean:
+            exception_lines.append(line_clean)
+            continue
+
         words = re.split(r"[().,;{}\s]+", line_clean)
         has_exception = False
         for word in words:
@@ -121,7 +133,7 @@ def filter_exception_code(code: str) -> str:
     return "\n".join(exception_lines[:MAX_EXCEPTION_LINES])
 
 
-def filter_testing_code(code: str) -> str:
+def filter_testing_code(code: str, node_id: str) -> str:
     """
     Filters and extracts testing-related code sections.
 
@@ -129,6 +141,7 @@ def filter_testing_code(code: str) -> str:
 
     Args:
         code: Full code text to process
+        node_id: Identifier of the graph node (used to infer class name)
 
     Returns:
         Filtered code snippet containing test-related elements
@@ -156,22 +169,34 @@ def filter_testing_code(code: str) -> str:
         "should",
         "expect(",
     ]
+    scala_mode = is_scala(node_id)
+
+    if scala_mode:
+        test_keywords.extend(["mustBe", "shouldBe", "shouldEqual", "contain", "intercept[", "assertResult"])
+
     for line in lines:
         line_stripped = line.strip()
         if not line_stripped:
             continue
+
         if any(keyword in line_stripped for keyword in test_keywords):
             testing_lines.append(line_stripped)
             continue
-        if "void " in line_stripped and (
-            "test" in line_stripped.lower() or "should" in line_stripped.lower()
-        ):
-            testing_lines.append(line_stripped)
+
+        if not scala_mode:
+            if "void " in line_stripped and (
+                    "test" in line_stripped.lower() or "should" in line_stripped.lower()):
+                testing_lines.append(line_stripped)
+        else:
+            if line_stripped.startswith(("test(", "it should", "it must", "describe(")):
+                testing_lines.append(line_stripped)
+            elif "def " in line_stripped and ("test" in line_stripped.lower() or "should" in line_stripped.lower()):
+                testing_lines.append(line_stripped)
 
     return "\n".join(testing_lines[:MAX_TESTING_LINES])
 
 
-def filter_implementation_code(code: str) -> str:
+def filter_implementation_code(code: str, node_id: str) -> str:
     """
     Filters code to show implementation details, removing boilerplate.
 
@@ -179,6 +204,7 @@ def filter_implementation_code(code: str) -> str:
 
     Args:
         code: Full code text to process
+        node_id: Identifier of the graph node (used to infer class name)
 
     Returns:
         Filtered code snippet containing implementation details
@@ -187,22 +213,30 @@ def filter_implementation_code(code: str) -> str:
         return ""
 
     implementation_lines = []
+    scala_mode = is_scala(node_id)
     lines = code.split("\n")
+
     for line in lines:
         line_stripped = line.strip()
         if not line_stripped:
             continue
-        if line_stripped.startswith(("public ", "private ", "protected ")):
-            lower_line = line_stripped.lower()
-            if " get" in lower_line and "()" in line_stripped and len(line_stripped) < 50:
+
+        if not scala_mode:
+            if line_stripped.startswith(("public ", "private ", "protected ")):
+                lower_line = line_stripped.lower()
+                if " get" in lower_line and "()" in line_stripped and len(line_stripped) < 50:
+                    continue
+                if " set" in lower_line and len(line_stripped) < 60:
+                    continue
+            if line_stripped.startswith("return this.") and line_stripped.endswith(";"):
+                if len(line_stripped) < 30:
+                    continue
+            if line_stripped.startswith("this.") and "=" in line_stripped and len(line_stripped) < 40:
                 continue
-            if " set" in lower_line and len(line_stripped) < 60:
-                continue
-        if line_stripped.startswith("return this.") and line_stripped.endswith(";"):
-            if len(line_stripped) < 30:
-                continue
-        if line_stripped.startswith("this.") and "=" in line_stripped and len(line_stripped) < 40:
-            continue
+        else:
+            if re.match(r'^(override\s+)?(val|var)\s+\w+\s*:\s*\w+\s*=\s*\w+$', line_stripped):
+                if len(line_stripped) < 40:
+                    continue
 
         implementation_lines.append(line_stripped)
 

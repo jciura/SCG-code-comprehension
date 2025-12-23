@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import List
 
 import httpx
@@ -37,38 +36,14 @@ async def call_fastapi(endpoint: str, question: str, params) -> str:
         return str(e)
 
 
-AGENT_INSTRUCTIONS = ""
-try:
-    agent_md_path = Path(__file__).parent / "AGENT.md"
-    with open(agent_md_path, "r", encoding="utf-8") as f:
-        AGENT_INSTRUCTIONS = f.read()
-except Exception as e:
-    logger.warning(f"Could not load AGENT.md: {e}")
-
-@mcp.tool()
-async def read_agent_instructions() -> str:
-    """
-    📖 READ THIS FIRST! Complete guide for SCG code analysis tools.
-
-    Returns comprehensive instructions including:
-    - Decision tree: which function to use for each question type
-    - Parameter selection guidelines
-    - Query examples with explanations
-    - Checklist before submitting questions
-
-    ⚠️ CRITICAL: Call this if you're unsure which tool to use or how to set parameters.
-
-    Returns:
-        str: Complete agent instructions with examples and decision flowchart
-    """
-    return f"""# SCG CODE ANALYSIS AGENT - INSTRUCTIONS {AGENT_INSTRUCTIONS} """
-
 @mcp.tool()
 async def ask_specific_nodes(
         question: str, pairs: List[List[str]], top_k: int, max_neighbors: int, neighbor_types: List[str],
         relation_types: List[str]) -> str:
     """
     #REMINDER: IF YOU HAVE CONTEXT (CODE) OF NODE FROM ANOTHER QUERY AND YOU CAN GIVE ANSWER DO NOT ASK ANOTHER QUESTION.
+    Retrieves code and context for specific classes, methods, interfaces, etc...,
+    **If user asks about parameter or variable ask him to specify which method/class/interface it belongs to.**
 
     **When to use:**
     Question contains specific names of code elements (classes, methods, functions, variables, constructors).
@@ -82,18 +57,6 @@ async def ask_specific_nodes(
     - Inside server node is retrieved from vector base by string of `KIND NAME` and that is achieved by parameter `pairs`
     - User asks about specific **variable**, **parameter** or **value** ask him to specify which **METHOD/CLASS/INTERFACE** it belongs to. Data about parameters, variables and values is not stored in vector base.
 
-    **DON'T use when:**
-
-    - Question is general: "How does login work?", "Describe the architecture", "How is logging implemented?"
-    - No specific code element names present
-    - Asking about "top X" or ranking
-
-    **Examples:**
-
-    - "How is LoginController class implemented?"
-    - "What does authenticate method in AuthService do?"
-    - "Desctibe the User class"
-
     **Parameters:**
     ```json
     {
@@ -106,7 +69,6 @@ async def ask_specific_nodes(
     ```
 
     **Parameters values selection:**
-
 
     - `pairs:`
       - Extract from user's question pairs (kind, name) for each entity mentioned in it. If there are mistakes in spelling - fix it.
@@ -130,16 +92,19 @@ async def ask_specific_nodes(
           to ["CLASS", "METHOD"]
         - Unsure what to choose - choose ["ANY"]
 
-    **MISTAKES**:
-    Using name of question node as `neighbor_types`
-
-    ```json
-    {
-      "neighbor_types": "CategoryController",
-      "question": "Describe CategoryController class"
-    }
-    ```
     ---
+    ### 🚨 CRITICAL INSTRUCTION: STOP AND ANSWER 🚨
+
+    **IF YOU RECEIVE CONTEXT FROM THIS TOOL, DO NOT CALL IT AGAIN FOR THE SAME NODE.**
+
+    1. **You already have the answer:** The return value of this function contains the code you need.
+    2. **Do not loop:** Do not try to "verify" or "fetch more" immediately.
+    3. **Formulate the response:**
+       - Describe the class/method logic in detail using the code provided.
+       - List fields, explain methods, and handle the user's request.
+    4. **Suggest, Don't Act:** - If you think more neighbors are needed, **ASK THE USER FIRST** in your text response.
+       - *Example:* "I have analyzed `ContextWaiter`. It connects to `ReentrantLock`. Would you like me to fetch the code for `ReentrantLock` next?"
+       - **DO NOT** trigger the tool for `ReentrantLock` automatically. Wait for user confirmation.
     """
     logger.info("MCP specific_nodes question: {}".format(question))
     params = {"top_k": top_k, "pairs": pairs, "max_neighbors": max_neighbors, "neighbor_types": neighbor_types,
@@ -162,11 +127,6 @@ async def ask_top_nodes(question: str, query_mode: str, kinds: List[str], metric
     - For `list_only` returns only list of selected nodes with `kind`, `uri` and `metric`.
     - For `full_desc` return code of selected nodes.
 
-    **DON'T use when:**
-
-    - Question about a specific element name
-    - General question about system behavior
-
     **Examples:**
 
     - "What are 5 classes with the most lines of code?"
@@ -188,7 +148,6 @@ async def ask_top_nodes(question: str, query_mode: str, kinds: List[str], metric
     ```
 
     **Parameters values selection:**
-
 
     - `query_mode:`
 
@@ -252,44 +211,12 @@ async def ask_top_nodes(question: str, query_mode: str, kinds: List[str], metric
            - If question contains words like "smallest", "least", "min" → use "asc"
            - If not sure → order = "desc"
 
-    **Call examples:**
-    ```json
-    {
-      "question": "What are 5 most important classes",
-      "query_mode": "list_only"
-      "kinds": ["CLASS"],
-      "metric": "combined"
-      "limit": 5,
-      "exact_metric_value": 0,
-      "order": "desc"
-    }
-    ```
 
-    ```json
-    {
-      "question": "Describe 5 most important classes",
-      "query_mode": "full_desc",
-      "kinds": ["CLASS"],
-      "metric": "combined",
-      "limit": 5,
-      "exact_metric_value": 0,
-      "order": "desc"
-    }
-    ```
-
-    ```json
-    {
-      "question": "What are classes without neighbors",
-      "query_mode": "list_only",
-      "kinds": ["CLASS"],
-      "metric": "number_of_neighbors",
-      "limit": "all",
-      "exact_metric_value": 0,
-      "order": "desc"
-    }
-    ```
-    ---
-    DON'T BE STUCK ON THIS QUESTION, just list nodes that you get with metric that you get for list_only.
+    ### CRITICAL RESPONSE STRATEGY (AFTER TOOL EXECUTION)
+    1. **Format List**: Present the results clearly (e.g., a numbered Markdown list).
+    2. **Interpret**: Explain *why* these nodes are top-ranked based on the metric.
+    3. **Suggest Next Step**: If you used `list_only`, the user cannot see the implementation. You MUST suggest analyzing the #1 result.
+       *Example:* "These are the top 5 largest classes. Would you like me to analyze the implementation of the largest one, `MainController`?"
     """
     logger.info("MCP top_nodes question: {}".format(question))
     params = {"query_mode": query_mode, "kinds": kinds, "metric": metric, "limit": limit,
@@ -313,11 +240,6 @@ async def ask_general_question(question: str, kinds: List[str], keywords: List[s
     **HOW BACKEND WORKS:**
     - Based on `kinds` and `keywords` chooses nodes that can potentially answer to question. Candidates to choose are later evaluated by other LLM using snippet of their code.
       You need to guess that `kinds` and `keywords`.
-
-    **DON'T use when:**
-
-    - Question contains a specific class/method name
-    - Question about ranking/top X
 
     **Examples:**
 
@@ -349,37 +271,12 @@ async def ask_general_question(question: str, kinds: List[str], keywords: List[s
         - Complex question: 4-5
 
 
-    **Selection examples:**
-
-    Simple question
-
-    ```json
-    {
-      "question": "How does login work?",
-      "top_nodes": 5,
-      "max_neighbors": 3,
-      "kinds": ["CLASS", "METHOD"],
-      "keywords": ["login", "controller", "view", "auth", ...]
-    }
-    ```
-
-    Complex Question
-
-    ```json
-    {
-      "question": "Describe the entire authentication system architecture",
-      "top_nodes": 8,
-      "max_neighbors": 5,
-      "kinds": ["CLASS", "METHOD"],
-      "keywords": ["auth", ...]
-    }
-    ```
     ---
-
-    #WORKFLOW TIP:
-    1. Start with ask_general_question to get overview
-    2. Extract specific element names from results
-    3. Suggest using ask_specific_nodes for detailed analysis of interesting elements to user
+    ### CRITICAL RESPONSE STRATEGY (AFTER TOOL EXECUTION)
+    1. **Synthesize Architecture**: Combine the returned nodes to describe the flow or system design.
+    2. **Highlight Gaps**: A general query is rarely perfect. Admit what parts of the flow seem to be missing.
+    3. **Suggest Next Step**: Pick the most interesting specific class found in this search and suggest drilling down.
+       *Example:* "It seems `SecurityConfig` is central to this flow. Would you like to see its detailed configuration?"
     """
     logger.info("MCP general_question question: {}".format(question))
     params = {"top_nodes": top_nodes, "kinds": kinds, "keywords": keywords, "max_neighbors": max_neighbors}
@@ -403,7 +300,6 @@ async def list_related_entities(question: str, pairs: List[List[str]], limit: in
 
     **HOW BACKEND WORKS:**
     - Based on parameters that you select backend query nodes that match criteria. It return list of `node_id` - `kind` - `uri` - `type or relation to node in question`
-
 
 
     **Examples:**
@@ -450,6 +346,11 @@ async def list_related_entities(question: str, pairs: List[List[str]], limit: in
         - Question: "What are all classes method Y is called by?" - `relation_types` is specified -> ["CALL_BY"]
         - Question: "What are all neighbors of class X?" - `relation_types` is not specified -> ["ANY"]
         - Unsure what to choose - choose ["ANY"]
+
+    ### CRITICAL RESPONSE STRATEGY (AFTER TOOL EXECUTION)
+    1. **Summarize Relationships**: Group the connections (e.g., "Method X is called by these 3 controllers...").
+    2. **Suggest Next Step**: Ask if the user wants to investigate the implementation of a specific related entity.
+       *Example:* "Class X calls `DatabaseService` frequently. Would you like to inspect `DatabaseService` to see how it handles the query?"
     """
     logger.info("MCP list related_entities question: {}".format(question))
     params = {"pairs": pairs, "limit": limit, "neighbor_types": neighbor_types, "relation_types": relation_types}

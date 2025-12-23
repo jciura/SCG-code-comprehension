@@ -97,7 +97,7 @@ async def get_specific_nodes_context(
         )
 
         full_context = build_context(
-            top_nodes, category, confidence, question=question, target_method=target_entity
+            top_nodes, category, confidence, len(pairs), question=question, target_method=target_entity
         )
 
         logger.debug(f"Context built: {len(full_context)} chars")

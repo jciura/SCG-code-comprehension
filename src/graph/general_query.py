@@ -45,8 +45,8 @@ def _filter_candidates(
         if score == 0:
             score = 0.1
 
-        combined_score_norm = (float(metadata.get("combined", 0.0)) / COMBINED_MAX)
-        hybrid_score = score + 0.1 * combined_score_norm
+        combined_score_norm = round((float(metadata.get("combined", 0.0) / COMBINED_MAX)), 2)
+        hybrid_score = score + combined_score_norm
         candidate_nodes.append((node_id, metadata, doc, hybrid_score))
 
     return candidate_nodes
@@ -55,41 +55,50 @@ def _filter_candidates(
 async def _score_node(
         question: str, node, code_snippet_limit: int) -> int:
     """
-    Scores a batch of candidates using LLM.
+    Scores usefulness of node based of snippet of it's code.
 
     Args:
         question: User question
-        batch: Batch of candidate nodes
         code_snippet_limit: Maximum characters per code snippet
 
     Returns:
-        List of scored items from LLM
+        Score for node in range 1-5.
     """
 
     logger.info(f"Scoring node: {node[0]}")
     snippet = "\n".join(node[2].splitlines())[:code_snippet_limit]
-    logger.debug(f"Snippet: {snippet}")
     prompt = f"""
-    Question: '{question}'
-    
-    Rate code fragment from 1 to 5:
-    1 = not relevant at all
-    3 = moderately relevant, the full code should help answer the question
-    5 = directly answers the question
-    
-    Return only score. No comments or explanations.
-    
-    Code fragment:
-    {json.dumps(snippet, indent=2)}
-    """
-    answer = await call_llm(prompt)
-    logger.debug(f"Answer: {answer}")
-    clean_answer = re.sub(r"```.*?```", "", answer, flags=re.DOTALL).strip()
-    try:
-        return json.loads(clean_answer)
-    except:
-        return []
+    You are a technical code analyzer. Your task is to rate the relevance of a Scala or Java code based on given question.
 
+    Question: '{question}'
+
+    Scoring Criteria:
+    1: The code has nothing to do with the question.
+    2: Somewhat connected to main topic, but not relevant
+    3: Moderately appropriate for question, but full code should be relevant
+    4: Not perfect, but relevant to question.
+    5: Perfectly answers the question.
+
+    Return only score in range 1-5. Do not include any text, reasoning, labels, or formatting.
+
+    Example Correct Response:
+    3
+
+    Code fragment to analyze:
+    {snippet}
+    """
+    try:
+        answer = await call_llm(prompt)
+        logger.debug(f"Answer: {answer}")
+        match = re.search(r"([1-5])", str(answer))
+        if match:
+            return int(match.group(1))
+
+        logger.warning(f"Could not get score for node: {node[0]}")
+        return 1
+    except Exception as e:
+        logger.exception(f"ERROR in scoring node: {e}")
+        return 1
 
 def expand_node_with_neighbors(
     node_id: str,
@@ -158,8 +167,7 @@ async def get_general_nodes_context(
     analysis: IntentAnalysis,
     model_name: str,
     collection: Any,
-        code_snippet_limit: int = 800,
-    batch_size: int = 5,
+        code_snippet_limit: int = 1200,
     **params,
 ) -> None | tuple[list[Any], str] | list[tuple[int, dict[str, Any]]]:
     """
@@ -171,7 +179,6 @@ async def get_general_nodes_context(
         model_name: Name of LLM model used for finding context
         collection: Chroma collection handle
         code_snippet_limit: Max characters per snippet for LLM
-        batch_size: Number of candidates scored per batch
         **params:
             top_k: Number of nodes to get context from
             max_neighbors: How many neighbors of each top node to get
@@ -188,10 +195,13 @@ async def get_general_nodes_context(
     kind_weights = {
         "CLASS": 2.0,
         "INTERFACE": 1.8,
-        "METHOD": 1.0,
+        "TRAIT": 1.6,
+        "ENUM": 1.5,
         "CONSTRUCTOR": 1.2,
-        "VARIABLE": 0.8,
-        "PARAMETER": 0.5,
+        "METHOD": 1.0,
+        "TYPE": 0.7,
+        "TYPE_PARAMETER": 0.6,
+        "OBJECT": 0.5,
     }
 
     kinds = [k.upper() for k in params.get("kinds", [])]
@@ -228,13 +238,15 @@ async def get_general_nodes_context(
     for candidate in candidates_sorted:
         node_id, metadata, doc, hybrid_score = candidate
 
-        score = await _score_node(question, candidate, code_snippet_limit)
-        logger.debug(f"LLM score for node {node_id}: {score}")
+        try:
+            score = await _score_node(question, candidate, code_snippet_limit)
+        except Exception as e:
+            logger.exception(f"Error while scoring nodes: {e}")
 
         if score >= 3 and node_id not in seen_nodes:
             top_nodes.append(
                 (
-                    hybrid_score + score * 100,
+                    hybrid_score + score * 2,
                     {"node": node_id, "metadata": metadata, "code": doc},
                 )
             )
@@ -242,6 +254,7 @@ async def get_general_nodes_context(
 
     top_nodes = sorted(top_nodes, key=lambda x: x[0], reverse=True)[:top_k]
     logger.info(f"Top nodes length: {len(top_nodes)}")
+    top_nodes_length = len(top_nodes)
 
     final_top_nodes = top_nodes.copy()
     seen_nodes = set(n[1]["node"] for n in top_nodes)
@@ -277,7 +290,7 @@ async def get_general_nodes_context(
     confidence = getattr(analysis, "confidence", 0.5)
 
     full_context = build_context(
-        final_top_nodes, category, confidence, question=question, target_method=None
+        final_top_nodes, category, confidence, top_nodes_length, question=question, target_method=None
     )
 
     end_time = time.time()

@@ -59,7 +59,7 @@ def filter_code_for_category(
         Tuple of (filtered_code, header)
     """
     if category == "exception":
-        filtered_code = filter_exception_code(code)
+        filtered_code = filter_exception_code(code, node_id)
         header = f"## {kind}: {node_id} (exception-handling)\n"
         return filtered_code, header
     elif category == "definition":
@@ -67,7 +67,7 @@ def filter_code_for_category(
         header = f"## {kind}: {node_id}\n"
         return filtered_code, header
     elif category == "testing":
-        filtered_code = filter_testing_code(code)
+        filtered_code = filter_testing_code(code, node_id)
         if not filtered_code:
             if len(code) > MAX_CODE_PREVIEW_SHORT:
                 filtered_code = code[:MAX_CODE_PREVIEW_SHORT] + "..."
@@ -76,7 +76,7 @@ def filter_code_for_category(
         header = f"## {kind}: {node_id} (test)\n"
         return filtered_code, header
     elif category == "implementation":
-        filtered_code = filter_implementation_code(code)
+        filtered_code = filter_implementation_code(code, node_id)
         if not filtered_code:
             if len(code) > MAX_CODE_PREVIEW_LONG:
                 filtered_code = code[:MAX_CODE_PREVIEW_SHORT] + "..."
@@ -281,6 +281,7 @@ def build_context(
         nodes: List[Tuple[float, Dict[str, Any]]],
         category: str,
         confidence: float,
+        top_nodes_limit: int = 1,
         question: str = "",
         target_method: Optional[str] = None,
 ) -> str:
@@ -291,6 +292,7 @@ def build_context(
         nodes: Retrieved nodes with similarity scores and payloads
         category: Detected/assumed question category
         confidence: Confidence for the category (0.0–1.0)
+        top_nodes_limit: Number of top_nodes extracted from question
         question: Original user question (used to infer targets)
         target_method: Explicit target method to search for usages
 
@@ -369,7 +371,11 @@ def build_context(
         priority_score = get_node_priority_score(node_data, category)
         combined_score = score + priority_score * 0.1
         scored_nodes.append((combined_score, node_data))
-    scored_nodes.sort(key=lambda x: x[0], reverse=True)
+
+    base_nodes = scored_nodes[:top_nodes_limit]
+    rest_nodes = scored_nodes[top_nodes_limit:]
+    rest_nodes.sort(key=lambda x: x[0], reverse=True)
+    scored_nodes = base_nodes + rest_nodes
 
     for score, node_data in scored_nodes:
         logger.info(node_data.get("node", ""))
