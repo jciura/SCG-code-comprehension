@@ -1,0 +1,348 @@
+{
+  "id": "Q001",
+  "question": "Describe ContextWaiter class",
+  "ragas": {
+    "claude": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 0.889,
+        "answer_relevance": 0.898,
+        "ragas_score": 0.926
+      },
+      "optional_metrics": {
+        "context_entity_recall": 1.0
+      }
+    },
+    "junie_mcp": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.895,
+        "ragas_score": 0.963
+      },
+      "optional_metrics": {
+        "context_entity_recall": 1.0
+      }
+    }
+  }
+}
+{
+  "id": "Q002",
+  "question": "Describe PythonRunner Object and all methods that use that object",
+  "ragas": {
+    "claude": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.894,
+        "ragas_score": 0.962
+      },
+      "optional_metrics": {
+        "context_entity_recall": 1.0
+      }
+    },
+    "junie_mcp": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 0.854,
+        "answer_relevance": 0.9,
+        "ragas_score": 0.914
+      },
+      "optional_metrics": {
+        "context_entity_recall": 1.0
+      }
+    }
+  }
+}
+{
+  "id": "Q003",
+  "question": "What could be improved in class KafkaWrite?",
+  "ragas": {
+    "claude": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 0.0,
+        "faithfulness": 0.4,
+        "answer_relevance": 0.932,
+        "ragas_score": 0.656
+      },
+      "optional_metrics": {
+        "context_entity_recall": 1.0
+      }
+    },
+    "junie_mcp": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 0.0,
+        "faithfulness": 0.0,
+        "answer_relevance": 0.926,
+        "ragas_score": 0.0
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.75
+      }
+    }
+  }
+}
+{
+  "id": "Q004",
+  "question": "What are 5 classes with most lines of code?",
+  "ragas": {
+    "claude": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 0.765,
+        "answer_relevance": 0.953,
+        "ragas_score": 0.894
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.6
+      }
+    },
+    "junie_mcp": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 0.714,
+        "answer_relevance": 0.906,
+        "ragas_score": 0.856
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.6
+      }
+    }
+  }
+}
+{
+  "id": "Q005",
+  "question": "Describe 3 most important classes in project.",
+  "ragas": {
+    "claude": {
+      "ragas": {
+        "context_recall": NaN,
+        "context_precision": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.903,
+        "ragas_score": 0.0
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.667
+      }
+    },
+    "junie_mcp": {
+      "ragas": {
+        "context_recall": NaN,
+        "context_precision": 1.0,
+        "faithfulness": 0.915,
+        "answer_relevance": 0.902,
+        "ragas_score": 0.0
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.667
+      }
+    }
+  }
+}
+{
+  "id": "Q006",
+  "question": "What are 10 entities with the most number of neighbors?",
+  "ragas": {
+    "claude": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 0.957,
+        "answer_relevance": 0.94,
+        "ragas_score": 0.965
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.2
+      }
+    },
+    "junie_mcp": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 0.0,
+        "answer_relevance": 0.944,
+        "ragas_score": 0.0
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.2
+      }
+    }
+  }
+}
+{
+  "id": "Q007",
+  "question": "How does the project manage external data connectivity and writing?",
+  "ragas": {
+    "claude": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 0.989,
+        "answer_relevance": 0.902,
+        "ragas_score": 0.962
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.0
+      }
+    },
+    "junie_mcp": {
+      "ragas": {
+        "context_recall": 0.6,
+        "context_precision": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.902,
+        "ragas_score": 0.795
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.0
+      }
+    }
+  }
+}
+{
+  "id": "Q008",
+  "question": "How does the project manage memory allocation?",
+  "ragas": {
+    "claude": {
+      "ragas": {
+        "context_recall": 0.045,
+        "context_precision": 0.478,
+        "faithfulness": 0.957,
+        "answer_relevance": 0.925,
+        "ragas_score": 0.124
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.0
+      }
+    },
+    "junie_mcp": {
+      "ragas": {
+        "context_recall": 0.0,
+        "context_precision": 1.0,
+        "faithfulness": 0.984,
+        "answer_relevance": 0.851,
+        "ragas_score": 0.0
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.0
+      }
+    }
+  }
+}
+{
+  "id": "Q009",
+  "question": "What is the architecture for logging and error reporting?",
+  "ragas": {
+    "claude": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 0.963,
+        "answer_relevance": 0.936,
+        "ragas_score": 0.966
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.4
+      }
+    },
+    "junie_mcp": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.866,
+        "ragas_score": 0.951
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.4
+      }
+    }
+  }
+}
+{
+  "id": "Q010",
+  "question": "What are all classes that class TaskSetManager calls?",
+  "ragas": {
+    "claude": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.923,
+        "ragas_score": 0.973
+      },
+      "optional_metrics": {
+        "context_entity_recall": 1.0
+      }
+    },
+    "junie_mcp": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 0.273,
+        "answer_relevance": 0.923,
+        "ragas_score": 0.522
+      },
+      "optional_metrics": {
+        "context_entity_recall": 1.0
+      }
+    }
+  }
+}
+{
+  "id": "Q011",
+  "question": "What are all related entities of method merge?",
+  "ragas": {
+    "claude": {
+      "ragas": {
+        "context_recall": 0.0,
+        "context_precision": 0.0,
+        "faithfulness": 0.9,
+        "answer_relevance": 0.869,
+        "ragas_score": 0.0
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.0
+      }
+    },
+    "junie_mcp": {
+      "ragas": {
+        "context_recall": 0.0,
+        "context_precision": 0.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.92,
+        "ragas_score": 0.0
+      },
+      "optional_metrics": {
+        "context_entity_recall": 0.0
+      }
+    }
+  }
+}
+{
+  "id": "Q012",
+  "question": "What are all related entities of class objecthashaggregateexe?",
+  "ragas": {
+    "claude": {
+      "ragas": {
+        "context_recall": 1.0,
+        "context_precision": 1.0,
+        "faithfulness": 0.765,
+        "answer_relevance": 0.928,
+        "ragas_score": 0.886
+      },
+      "optional_metrics": {
+        "context_entity_recall": 1.0
+      }
+    }
+  }
+}
