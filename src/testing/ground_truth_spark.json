@@ -141,7 +141,12 @@
       "id": "Q003",
       "question": "What could be improved in class KafkaWrite?",
       "category": "definition",
-      "ground_truth_contexts": [],
+      "ground_truth_contexts": [
+        "case class KafkaWrite( topic: Option[String], producerParams: ju.Map[String, Object], schema: StructType) extends Write { override def description(): String = \"Kafka\" override def toBatch: BatchWrite = { assert(schema != null) new KafkaBatchWrite(topic, producerParams, schema) } override def toStreaming: StreamingWrite = { assert(schema != null) new KafkaStreamingWrite(topic, producerParams, schema) } }",
+        "override def toBatch: BatchWrite = { assert(schema != null) new KafkaBatchWrite(topic, producerParams, schema) } override def toStreaming: StreamingWrite = { assert(schema != null) new KafkaStreamingWrite(topic, producerParams, schema) } }",
+        "override def toStreaming: StreamingWrite = { assert(schema != null) new KafkaStreamingWrite(topic, producerParams, schema) } }",
+        "override def description(): String = \"Kafka\" override def toBatch: BatchWrite = { assert(schema != null) new KafkaBatchWrite(topic, producerParams, schema) } override def toStreaming: StreamingWrite = { assert(schema != null) new KafkaStreamingWrite(topic, producerParams, schema) } }"
+      ],
       "key_entities": [
         "org/apache/spark/sql/kafka010/KafkaWrite#",
         "org/apache/spark/sql/kafka010/KafkaWrite#toBatch().",
@@ -235,9 +240,9 @@
           "more_info": "After asking for full answer returned better list in .md file with all the information returned by Server MCP"
         },
         "without_mcp": {
-          "answer": "",
+          "answer": "No answer",
           "answer_time": 700,
-          "tokens": 0,
+          "tokens": 2,
           "more_info": "Timeout on powershell script, no answer"
         }
       },
@@ -246,13 +251,13 @@
           "winner": "claude",
           "score_a": 4,
           "score_b": 3,
-          "reasoning": "Answer A is more conversational and user-friendly with better explanations of what each class does, plus offers further assistance. Answer B is overly formal with unnecessary metadata (timestamps, project paths) that doesn't add value for the user. While B has good structure, A better balances completeness with readability and directly addresses the user's needs."
+          "reasoning": "Answer A provides better user experience with clear formatting, helpful context about class functionality, and an engaging offer for follow-up analysis. Answer B is overly formal with unnecessary documentation-style metadata (timestamps, project paths) that doesn't add value for the user. Both have identical core information, but A presents it more accessibly and conversationally."
         },
         "mcp_vs_no_mcp": {
-          "winner": "",
-          "score_a": 0,
-          "score_b": 0,
-          "reasoning": ""
+          "winner": "claude",
+          "score_a": 5,
+          "score_b": 1,
+          "reasoning": "Answer A directly addresses the question with a complete, well-structured list of 5 classes with their line counts and file locations. It provides excellent context about what these classes do and offers additional help. Answer B provides no response at all, making it completely unhelpful."
         }
       }
     },
