@@ -20,7 +20,7 @@
         "context_precision": 1.0,
         "faithfulness": 1.0,
         "answer_relevance": 0.895,
-        "ragas_score": 0.963
+        "ragas_score": 0.972
       },
       "optional_metrics": {
         "context_entity_recall": 1.0
@@ -38,7 +38,7 @@
         "context_precision": 1.0,
         "faithfulness": 1.0,
         "answer_relevance": 0.894,
-        "ragas_score": 0.962
+        "ragas_score": 0.971
       },
       "optional_metrics": {
         "context_entity_recall": 1.0
@@ -48,9 +48,9 @@
       "ragas": {
         "context_recall": 1.0,
         "context_precision": 1.0,
-        "faithfulness": 0.854,
-        "answer_relevance": 0.9,
-        "ragas_score": 0.914
+        "faithfulness": 0.905,
+        "answer_relevance": 0.931,
+        "ragas_score": 0.957
       },
       "optional_metrics": {
         "context_entity_recall": 1.0
@@ -66,9 +66,9 @@
       "ragas": {
         "context_recall": 1.0,
         "context_precision": 0.0,
-        "faithfulness": 0.4,
+        "faithfulness": 0.438,
         "answer_relevance": 0.932,
-        "ragas_score": 0.656
+        "ragas_score": 0.0
       },
       "optional_metrics": {
         "context_entity_recall": 1.0
@@ -96,9 +96,9 @@
       "ragas": {
         "context_recall": 1.0,
         "context_precision": 1.0,
-        "faithfulness": 0.765,
+        "faithfulness": 0.882,
         "answer_relevance": 0.953,
-        "ragas_score": 0.894
+        "ragas_score": 0.956
       },
       "optional_metrics": {
         "context_entity_recall": 0.6
@@ -110,7 +110,7 @@
         "context_precision": 1.0,
         "faithfulness": 0.714,
         "answer_relevance": 0.906,
-        "ragas_score": 0.856
+        "ragas_score": 0.888
       },
       "optional_metrics": {
         "context_entity_recall": 0.6
@@ -124,26 +124,26 @@
   "ragas": {
     "claude": {
       "ragas": {
-        "context_recall": NaN,
+        "context_recall": 1.0,
         "context_precision": 1.0,
         "faithfulness": 1.0,
         "answer_relevance": 0.903,
-        "ragas_score": 0.0
+        "ragas_score": 0.974
       },
       "optional_metrics": {
-        "context_entity_recall": 0.667
+        "context_entity_recall": 1.0
       }
     },
     "junie_mcp": {
       "ragas": {
-        "context_recall": NaN,
+        "context_recall": 1.0,
         "context_precision": 1.0,
         "faithfulness": 0.915,
-        "answer_relevance": 0.902,
-        "ragas_score": 0.0
+        "answer_relevance": 0.912,
+        "ragas_score": 0.955
       },
       "optional_metrics": {
-        "context_entity_recall": 0.667
+        "context_entity_recall": 1.0
       }
     }
   }
@@ -156,9 +156,9 @@
       "ragas": {
         "context_recall": 1.0,
         "context_precision": 1.0,
-        "faithfulness": 0.957,
+        "faithfulness": 1.0,
         "answer_relevance": 0.94,
-        "ragas_score": 0.965
+        "ragas_score": 0.985
       },
       "optional_metrics": {
         "context_entity_recall": 0.2
@@ -169,7 +169,7 @@
         "context_recall": 1.0,
         "context_precision": 1.0,
         "faithfulness": 0.0,
-        "answer_relevance": 0.944,
+        "answer_relevance": 0.94,
         "ragas_score": 0.0
       },
       "optional_metrics": {
@@ -186,9 +186,9 @@
       "ragas": {
         "context_recall": 1.0,
         "context_precision": 1.0,
-        "faithfulness": 0.989,
+        "faithfulness": 0.979,
         "answer_relevance": 0.902,
-        "ragas_score": 0.962
+        "ragas_score": 0.969
       },
       "optional_metrics": {
         "context_entity_recall": 0.0
@@ -199,8 +199,8 @@
         "context_recall": 0.6,
         "context_precision": 1.0,
         "faithfulness": 1.0,
-        "answer_relevance": 0.902,
-        "ragas_score": 0.795
+        "answer_relevance": 0.905,
+        "ragas_score": 0.838
       },
       "optional_metrics": {
         "context_entity_recall": 0.0
@@ -216,9 +216,9 @@
       "ragas": {
         "context_recall": 0.045,
         "context_precision": 0.478,
-        "faithfulness": 0.957,
+        "faithfulness": 0.978,
         "answer_relevance": 0.925,
-        "ragas_score": 0.124
+        "ragas_score": 0.151
       },
       "optional_metrics": {
         "context_entity_recall": 0.0
@@ -228,7 +228,7 @@
       "ragas": {
         "context_recall": 0.0,
         "context_precision": 1.0,
-        "faithfulness": 0.984,
+        "faithfulness": 0.988,
         "answer_relevance": 0.851,
         "ragas_score": 0.0
       },
@@ -248,7 +248,7 @@
         "context_precision": 1.0,
         "faithfulness": 0.963,
         "answer_relevance": 0.936,
-        "ragas_score": 0.966
+        "ragas_score": 0.974
       },
       "optional_metrics": {
         "context_entity_recall": 0.4
@@ -260,7 +260,7 @@
         "context_precision": 1.0,
         "faithfulness": 1.0,
         "answer_relevance": 0.866,
-        "ragas_score": 0.951
+        "ragas_score": 0.963
       },
       "optional_metrics": {
         "context_entity_recall": 0.4
@@ -278,7 +278,7 @@
         "context_precision": 1.0,
         "faithfulness": 1.0,
         "answer_relevance": 0.923,
-        "ragas_score": 0.973
+        "ragas_score": 0.981
       },
       "optional_metrics": {
         "context_entity_recall": 1.0
@@ -290,7 +290,7 @@
         "context_precision": 1.0,
         "faithfulness": 0.273,
         "answer_relevance": 0.923,
-        "ragas_score": 0.522
+        "ragas_score": 0.593
       },
       "optional_metrics": {
         "context_entity_recall": 1.0
@@ -306,7 +306,7 @@
       "ragas": {
         "context_recall": 0.0,
         "context_precision": 0.0,
-        "faithfulness": 0.9,
+        "faithfulness": 0.727,
         "answer_relevance": 0.869,
         "ragas_score": 0.0
       },
@@ -336,9 +336,9 @@
       "ragas": {
         "context_recall": 1.0,
         "context_precision": 1.0,
-        "faithfulness": 0.765,
+        "faithfulness": 0.833,
         "answer_relevance": 0.928,
-        "ragas_score": 0.886
+        "ragas_score": 0.935
       },
       "optional_metrics": {
         "context_entity_recall": 1.0

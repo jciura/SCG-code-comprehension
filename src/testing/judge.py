@@ -3,6 +3,9 @@ import re
 import anthropic
 from dotenv import load_dotenv
 from loguru import logger
+from typing import Optional
+
+from src.core.config import JUDGE_MODEL, JUDGE_MAX_TOKENS
 
 load_dotenv()
 
@@ -10,6 +13,15 @@ client = anthropic.Anthropic()
 
 
 def clean_json(response_text: str) -> str:
+    """
+        Normalize model output by removing Markdown code blocks.
+
+        Args:
+            response_text: Raw response text from the model.
+
+        Returns:
+            Cleaned JSON string.
+        """
     pattern = r"```(?:json)?\s*(.*?)```"
     match = re.search(pattern, response_text, re.DOTALL)
 
@@ -17,12 +29,20 @@ def clean_json(response_text: str) -> str:
         return match.group(1).strip()
     return response_text.strip()
 
-def judge_answer(prompt: str) -> str:
+def judge_answer(prompt: str) -> Optional[str]:
+    """
+        Send a prompt to the judge model and return cleaned JSON output.
 
+        Args:
+            prompt: Judge prompt.
+
+        Returns:
+            Cleaned JSON response, or None on error.
+        """
     try:
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=500,
+            model=JUDGE_MODEL,
+            max_tokens=JUDGE_MAX_TOKENS,
             messages=[{"role": "user", "content": prompt}])
         model_response = message.content[0].text.strip()
         clean_response = clean_json(model_response)

@@ -2,9 +2,11 @@ import json
 
 from loguru import logger
 
-from testing.evaluator import RAGEvaluator
 from testing.judge import judge_answer
 from testing.token_counter import count_tokens
+from src.core.models import GroundTruthTestSuite
+from testing.rag_metrics import RAGMetrics
+from src.core.config import METRICS
 
 JUDGE_PROMPT = """You are an expert code reviewer.
 Your task is to compare two answers to the same question.
@@ -34,6 +36,21 @@ Output format:
 
 
 def compare_answers(question: str, answer_a: str, answer_b: str) -> dict:
+    """
+        Compare two answers to the same question using an LLM-based judge.
+
+        Args:
+            question: The user question.
+            answer_a: First answer to compare.
+            answer_b: Second answer to compare.
+
+        Returns:
+            A dictionary with the following keys:
+            - winner: "A", "B", "equal", or "N/A" if comparison failed.
+            - score_a: Integer score for answer A (1–5).
+            - score_b: Integer score for answer B (1–5).
+            - reasoning: Short justification or error message.
+        """
     if not answer_a or not answer_b:
         return {"winner": "N/A", "score_a": 0, "score_b": 0, "reasoning": "Missing answer"}
     prompt = JUDGE_PROMPT.format(
@@ -51,6 +68,19 @@ def compare_answers(question: str, answer_a: str, answer_b: str) -> dict:
 
 
 def evaluate_all(ground_truth_file: str) -> None:
+    """
+        Run pairwise answer comparisons and token counting for all questions
+        in a ground truth dataset.
+
+        For each question, this function:
+        - Compares Claude vs Junie (with MCP) answers using an LLM judge
+        - Conditionally compares MCP vs non-MCP answers based on the winner
+        - Counts answer tokens and context tokens for each model
+
+        Args:
+            ground_truth_file: Path to the ground truth JSON file.
+        """
+
     with open(ground_truth_file, "r", encoding="utf-8") as f:
         ground_truth = json.load(f)
     for q in ground_truth.get("questions", []):
@@ -113,6 +143,16 @@ def evaluate_all(ground_truth_file: str) -> None:
 
 
 def get_ground_context(node: str, node_embedding_file):
+    """
+        Retrieve ground truth context code for a given node.
+
+        Args:
+            node: Entity or node identifier to look up.
+            node_embedding_file: Path to the JSON file containing node embeddings.
+
+        Returns:
+            The context associated with the node, or None if not found.
+        """
     with open(node_embedding_file, "r", encoding="utf-8") as f_emb:
         embeddings = json.load(f_emb)
         for emb in embeddings:
@@ -122,6 +162,16 @@ def get_ground_context(node: str, node_embedding_file):
 
 
 def add_ground_context(ground_truth_file: str, node_embedding_file: str) -> None:
+    """
+        For each question that has key entities but no ground truth contexts,
+        the function:
+        - Looks up each entity in the node embedding file
+        - Appends matching code snippets to the question's ground truth contexts
+
+        Args:
+            ground_truth_file: Path to the ground truth JSON file.
+            node_embedding_file: Path to the node embedding JSON file.
+        """
     with open(ground_truth_file, "r", encoding="utf-8") as f:
         ground_truth = json.load(f)
 
@@ -139,36 +189,45 @@ def add_ground_context(ground_truth_file: str, node_embedding_file: str) -> None
 
 
 def evaluate_rag_metrics(ground_truth_file: str):
-    evaluator = RAGEvaluator(ground_truth_file)
-    with open("metrics_log_spark.jsonl", "a", encoding="utf-8") as f_out:
-        for q in evaluator.test_suite.questions:
+    """
+        Calculate RAGAS metrics for Claude and Junie+MCP answers.
+
+        Function:
+        - Computes RAG metrics
+        - Logs metric results per question
+        - Appends evaluation records to a JSONL log file
+
+        Args:
+            ground_truth_file: Path to the ground truth file prepared for RAG evaluation.
+        """
+    test_suite = GroundTruthTestSuite.load_from_file(ground_truth_file)
+    rag_metrics = RAGMetrics()
+    with open(METRICS, "a", encoding="utf-8") as f_out:
+        for q in test_suite.questions:
             question = q.question
-            key_entities = q.key_entities
-            gt_contexts = q.ground_truth_contexts
             record = {
                 "id": q.id,
                 "question": question,
-                "ragas": {}
-            }
-            claude_answer = q.claude_stats.answer if q.claude_stats else ""
-            claude_context = q.claude_stats.used_context if q.claude_stats else []
-            if claude_answer and claude_context:
-                results = evaluator.rag_metrics.full_evaluation(
-                    question, claude_answer, claude_context, gt_contexts, key_entities)
-                record["ragas"]["claude"] = results
-                logger.info(f"[{q.id}] Claude RAGAS: {results['ragas']}")
-            junie_answer = q.junie_stats.with_mcp.answer if q.junie_stats else ""
-            junie_context = q.junie_stats.with_mcp.used_context if q.junie_stats else []
-            if junie_answer and junie_context:
-                results = evaluator.rag_metrics.full_evaluation(
-                    question, junie_answer, junie_context, gt_contexts, key_entities)
-                record["ragas"]["junie_mcp"] = results
-                logger.info(f"[{q.id}] Junie MCP RAGAS: {results['ragas']}")
+                "ragas": {}}
+            responses = {
+                "claude": (
+                    q.claude_stats.answer if q.claude_stats else "",
+                    q.claude_stats.used_context if q.claude_stats else []
+                ),
+                "junie_mcp": (
+                    q.junie_stats.with_mcp.answer if q.junie_stats else "",
+                    q.junie_stats.with_mcp.used_context if q.junie_stats else [])}
+            for source, (answer, context) in responses.items():
+                if answer and context:
+                    results = rag_metrics.full_evaluation(
+                        question, answer, context, q.ground_truth_contexts, q.key_entities)
+                    record["ragas"][source] = results
+                    logger.info(f"[{q.id}] {source.upper()} RAGAS: {results['ragas']}")
 
             f_out.write(json.dumps(record, indent=2, ensure_ascii=False) + "\n")
 
 
 if __name__ == "__main__":
     # add_ground_context("ground_truth_spark.json", "../../data/embeddings/node_embedding.json")
-    # evaluate_rag_metrics("rest_ground_truth.json")
-    evaluate_all("ground_truth_spark.json")
+    evaluate_rag_metrics("ground_truth_spark_ragas_ready.json")
+    # evaluate_all("ground_truth_spark.json")

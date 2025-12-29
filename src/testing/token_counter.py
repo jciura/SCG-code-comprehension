@@ -11,15 +11,30 @@ client = anthropic.Anthropic()
 
 @lru_cache(maxsize=1)
 def _get_llama_tokenizer():
+    """Load and cache the LLaMA tokenizer."""
     return AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
 
 
 @lru_cache(maxsize=1)
 def _get_gpt5_tokenizer():
+    """Load and cache the GPT tokenizer."""
     return tiktoken.encoding_for_model("gpt-4o-mini")
 
 
 def count_tokens(text: str, model: str = "llama") -> int:
+    """
+        Count the number of tokens in a text for a given model.
+
+        Args:
+            text: Input text to tokenize.
+            model: Model identifier.
+
+        Returns:
+            Number of tokens in the input text.
+
+        Raises:
+            KeyError: If the model type is unsupported.
+        """
     if not text:
         return 0
 
