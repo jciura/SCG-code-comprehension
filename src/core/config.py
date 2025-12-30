@@ -1,9 +1,5 @@
 import os
 
-from transformers.models.clap.modeling_clap import ClapAudioEncoder
-
-from core.models import ClaudeStats
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_DIR = os.path.dirname(BASE_DIR)
 PROJECT_ROOT = os.path.dirname(SRC_DIR)

@@ -3,6 +3,9 @@ from typing import List
 import httpx
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from src.core.config import HTTP_TIMEOUT, SERVER_URL
 
 mcp = FastMCP("scg-context")
