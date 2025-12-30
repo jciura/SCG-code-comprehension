@@ -2,11 +2,10 @@ from functools import lru_cache
 
 import anthropic
 import tiktoken
-from dotenv import load_dotenv
 from transformers import AutoTokenizer
 from src.core.config import LLAMA_TOKENIZER_MODEL, CLAUDE_MODEL, GPT_MODEL
 
-load_dotenv()
+
 client = anthropic.Anthropic()
 
 

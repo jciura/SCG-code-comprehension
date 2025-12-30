@@ -1,13 +1,11 @@
 import re
 
 import anthropic
-from dotenv import load_dotenv
 from loguru import logger
 from typing import Optional
 
 from src.core.config import CLAUDE_MODEL, CLAUDE_MAX_TOKENS
 
-load_dotenv()
 
 client = anthropic.Anthropic()
 

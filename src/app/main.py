@@ -1,9 +1,7 @@
 import asyncio
 import logging
 import time
-
 import httpx
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -21,7 +19,7 @@ from src.core.config import (
 from src.core.intent_analyzer import get_intent_analyzer
 from src.core.models import AskRequest
 
-load_dotenv()
+
 from src.core.prompt import build_prompt
 from testing.token_counter import count_tokens
 

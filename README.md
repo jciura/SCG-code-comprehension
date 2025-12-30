@@ -42,6 +42,11 @@ To better understand how these method works read file [AGENT.md](src/clients/AGE
    }
    ``` 
    If chosen tool support it insert whole file `AGENT.md` for Agent to analyze
+3. Create `.env` file in project root:
+```bash
+cp .env.example .env
+```
+4. Fill in your API keys in `.env`.
 
-3. Start asking question related to project
+5. Start asking question related to project
 

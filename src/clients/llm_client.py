@@ -3,16 +3,11 @@ import os
 from pathlib import Path
 
 import httpx
-from dotenv import load_dotenv
 from loguru import logger
 
-from src.core.config import MODEL_NAME, HTTP_TIMEOUT, GEMINI_RATE_LIMIT_DELAY
+from src.core.config import MODEL_NAME, HTTP_TIMEOUT, GEMINI_RATE_LIMIT_DELAY, GEMINI_API_KEY
 
-current_file = Path(__file__)
-env_path = current_file.parent.parent / "testing" / ".env"
-load_dotenv(dotenv_path=env_path)
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 timeout = httpx.Timeout(HTTP_TIMEOUT)
 client = httpx.AsyncClient(timeout=timeout)

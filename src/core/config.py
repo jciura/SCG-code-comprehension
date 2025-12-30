@@ -1,8 +1,15 @@
 import os
+from dotenv import load_dotenv
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_DIR = os.path.dirname(BASE_DIR)
 PROJECT_ROOT = os.path.dirname(SRC_DIR)
+
+load_dotenv(dotenv_path=os.path.join(PROJECT_ROOT, ".env"))
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 default_classifier_model = "sentence-transformers/all-MiniLM-L6-v2"
 default_chroma_path = os.path.join(PROJECT_ROOT, "data", "embeddings", "chroma_storage")

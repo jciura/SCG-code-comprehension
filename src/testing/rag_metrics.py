@@ -1,13 +1,11 @@
 from typing import Any, Dict, List
-
-from dotenv import load_dotenv
 from loguru import logger
 
 from src.core.config import GPT_MODEL, RAGAS_TIMEOUT, RAGAS_MAX_TOKENS
 
 RAGAS_AVAILABLE = False
 llm = None
-load_dotenv()
+
 try:
     from ragas import evaluate
     from ragas.metrics import (
