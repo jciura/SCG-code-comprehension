@@ -63,7 +63,7 @@ async def get_specific_nodes_context(
             from context.context_builder import build_context
         except ImportError:
 
-            def build_context(nodes, category, confidence, question="", target_method=None):
+            def build_context(nodes, category, confidence, top_nodes_limit=1, question="", target=None):
                 return "\n\n".join([node[1]["code"] for node in nodes[:5] if node[1]["code"]])
 
         logger.debug(f"Question: '{question}'")
@@ -104,7 +104,7 @@ async def get_specific_nodes_context(
             confidence,
             len(pairs),
             question=question,
-            target_method=target_entity,
+            target=target_entity,
         )
 
         logger.debug(f"Context built: {len(full_context)} chars")

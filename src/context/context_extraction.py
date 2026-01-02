@@ -1,28 +1,35 @@
 import re
-from typing import Optional
+from typing import List, Optional
 
 
-def extract_usage_fragment(code: str, target_method: str, context_lines: int = 5) -> Optional[str]:
+def extract_usage_fragment(code: str, target: str, context_lines: int = 5) -> List[str]:
     """
-    Extracts a fragment of code showing usage of a target method.
+    Extracts a fragment of code showing usage of a target method or class.
 
     Args:
         code: Source code text
-        target_method: Method name to locate
+        target: Method or class name to locate
         context_lines: Number of lines before and after to include
 
     Returns:
-        Code fragment containing the method call, or None if not found
+        Code fragment containing the usage, or None if not found
     """
-    if not target_method or f"{target_method}(" not in code:
+    if not target or not code:
         return None
+    pattern = re.compile(rf"\b{re.escape(target)}\b", re.IGNORECASE)
     code_lines = code.split("\n")
+    fragments = []
+    used_lines = set()
     for i, line in enumerate(code_lines):
-        if f"{target_method}(" in line:
+        if pattern.search(line):
             start = max(0, i - context_lines)
             end = min(len(code_lines), i + context_lines + 1)
-            return "\n".join(code_lines[start:end])
-    return None
+            if any(start <= line <= end for line in used_lines):
+                continue
+            fragments.append("\n".join(code_lines[start:end]))
+            used_lines.update(range(start, end))
+
+    return fragments
 
 
 def extract_target_from_question(question: str) -> Optional[str]:
@@ -37,24 +44,19 @@ def extract_target_from_question(question: str) -> Optional[str]:
     """
     if not question:
         return None
-
+    for pattern in [r'\b([A-Z][a-zA-Z]*[a-z][a-zA-Z]*)\b', r'\b([a-z]+[A-Z][a-zA-Z]*)\b',]:
+        match = re.search(pattern, question)
+        if match:
+            return match.group(1)
     question_lower = question.lower()
     patterns = [
-        r"method\s+(\w+)",
-        r"(\w+)\s+method",
-        r"class\s+(\w+)",
-        r"(\w+)\s+class",
-        r"for\s+(\w+)\s+class",
-        r"where.*\s+(\w+)\s+used",
-        r"tests?\s+for\s+(\w+)",
-        r"(\w+controller)",
-        r"(\w+service)",
-        r"(\w+repository)",
-        r"metod[aąęy]?\s+(\w+)",
-        r"(\w+)\s+metod[aąęy]?",
-        r"klas[aąęy]?\s+(\w+)",
-        r"(\w+)\s+klas[aąęy]?",
-        r"dla\s+klasy\s+(\w+)"
+        r"(?:method|function|class|trait|object|interface|def|type)\s+(\w+)",
+        r"(\w+)\s+(?:method|function|class|trait|object|interface)",
+        r"(?:where\s+is|how\s+to\s+use|what\s+is|what\s+does)\s+(\w+)",
+        r"tests?\s+(?:for\s+)?(\w+)",
+        r"implementation\s+of\s+(\w+)",
+        r"(\w+)\s+implementation",
+        r"(\w+(?:controller|service|repository|handler|factory|builder|utils?|helper|exception|error))\b",
     ]
 
     for pattern in patterns:

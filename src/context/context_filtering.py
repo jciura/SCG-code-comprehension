@@ -38,7 +38,7 @@ def filter_definition_code(code: str, node_id: str, kind: str) -> str:
     if not code:
         return ""
 
-    if kind not in ["CLASS", "INTERFACE", "METHOD"]:
+    if kind not in ["CLASS", "INTERFACE", "METHOD", "TRAIT", "OBJECT"]:
         return code[:MAX_CODE_PREVIEW_CHARS]
 
     definition_lines = []
@@ -55,42 +55,58 @@ def filter_definition_code(code: str, node_id: str, kind: str) -> str:
         class_name = node_id
 
     for line in lines:
-        line_clean = line.strip()
-        line_clean = re.sub(r"^/\*\*?\s*", "", line_clean)
-        line_clean = re.sub(r"\*/", "", line_clean)
-        if not line_clean or line_clean.startswith("//"):
+        cleaned_line = line.strip()
+        cleaned_line = re.sub(r"^/\*\*?\s*", "", cleaned_line)
+        cleaned_line = re.sub(r"\*/", "", cleaned_line)
+        if not cleaned_line or cleaned_line.startswith("//"):
             continue
-        if line_clean.startswith("@"):
-            definition_lines.append(line_clean)
+        if cleaned_line.startswith("@"):
+            definition_lines.append(cleaned_line)
             continue
         if (
-            "class " in line_clean
-            or "interface " in line_clean
-            or "trait " in line_clean
-            or "object " in line_clean
+            "class " in cleaned_line
+            or "interface " in cleaned_line
+            or "trait " in cleaned_line
+            or "object " in cleaned_line
+            or "enum " in cleaned_line
         ):
-            definition_lines.append(line_clean)
+            definition_lines.append(cleaned_line)
             continue
         if scala_mode:
-            if re.search(r"\bdef\s+[\w<\[]+", line_clean) or line_clean.startswith("def this("):
-                signature = line_clean.split("=")[0].strip()
+            if re.search(r"\bdef\s+[\w<\[]+", cleaned_line) or cleaned_line.startswith("def this("):
+                signature = cleaned_line.split("=")[0].strip()
                 if not signature.endswith(";"):
                     signature += ";"
                 definition_lines.append(signature)
-                definition_lines.append(line_clean)
+                continue
+            if re.match(r"^(override\s+)?(val|var|lazy\s+val)\s+\w+", cleaned_line):
+                signature = cleaned_line.split("=")[0].strip()
+                definition_lines.append(signature)
+                continue
+            if re.match(r"^(enum)\s+\w+", cleaned_line):
+                definition_lines.append(cleaned_line)
+                continue
+            if re.match(r"^case\s+\w+", cleaned_line) and "=>" not in cleaned_line:
+                definition_lines.append(cleaned_line)
+                continue
+            if re.match(r"^implicit\s+(class|def|val|object)", cleaned_line):
+                definition_lines.append(cleaned_line)
+                continue
+            if re.match(r"^type\s+\w+", cleaned_line):
+                definition_lines.append(cleaned_line)
                 continue
         else:
-            has_modifier = any(line_clean.startswith(mod) for mod in modifiers)
+            has_modifier = any(cleaned_line.startswith(mod) for mod in modifiers)
             if not has_modifier:
                 continue
-            if "(" not in line_clean and "=" not in line_clean:
-                definition_lines.append(line_clean)
+            if "(" not in cleaned_line and "=" not in cleaned_line:
+                definition_lines.append(cleaned_line)
                 continue
-            if class_name + "(" in line_clean:
-                definition_lines.append(line_clean)
+            if class_name + "(" in cleaned_line:
+                definition_lines.append(cleaned_line)
                 continue
-            if "(" in line_clean and ")" in line_clean:
-                signature = line_clean.rstrip("{").strip()
+            if "(" in cleaned_line and ")" in cleaned_line:
+                signature = cleaned_line.rstrip("{").strip()
                 if not signature.endswith(";"):
                     signature += ";"
                 definition_lines.append(signature)

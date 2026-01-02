@@ -10,6 +10,11 @@ client = httpx.AsyncClient(timeout=timeout)
 
 
 async def call_llm(prompt: str) -> str:
+    """
+        Send a prompt to the Gemini LLM and return the generated response text.
+
+        Handles rate limiting, basic response validation, and error cases.
+        """
     if not GEMINI_API_KEY:
         raise ValueError("Gemini API Key not found")
 

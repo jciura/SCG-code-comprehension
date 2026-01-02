@@ -1,3 +1,4 @@
+import re
 from collections import Counter
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -30,10 +31,10 @@ MAX_CODE_PREVIEW_LONG = 4000
 
 
 def adjust_category(
-    intent_category: IntentCategory,
-    category: str,
-    confidence: float,
-    nodes: List[Tuple[float, Dict[str, Any]]],
+        intent_category: IntentCategory,
+        category: str,
+        confidence: float,
+        nodes: List[Tuple[float, Dict[str, Any]]],
 ) -> Tuple[IntentCategory, str, float]:
     """
     Adjust category based on first node's kind when confidence is low.
@@ -47,11 +48,10 @@ def adjust_category(
     Returns:
         Tuple of (adjusted_intent, adjusted_category, adjusted_confidence)
     """
-
     if intent_category == IntentCategory.GENERAL and confidence < 0.7 and nodes:
         first_node = nodes[0][1]
         node_kind = first_node.get("metadata", {}).get("kind", "")
-        if node_kind in ["CLASS", "INTERFACE"]:
+        if node_kind in ["CLASS", "INTERFACE", "TRAIT", "OBJECT"]:
             return IntentCategory.DEFINITION, IntentCategory.DEFINITION.value, 0.8
         elif node_kind == "METHOD":
             return IntentCategory.IMPLEMENTATION, IntentCategory.IMPLEMENTATION.value, 0.7
@@ -86,7 +86,7 @@ def filter_code_for_category(code: str, node_id: str, kind: str, category: str) 
         filtered_code = filter_implementation_code(code, node_id)
         if not filtered_code:
             if len(code) > MAX_CODE_PREVIEW_LONG:
-                filtered_code = code[:MAX_CODE_PREVIEW_SHORT] + "..."
+                filtered_code = code[:MAX_CODE_PREVIEW_LONG] + "..."
             else:
                 filtered_code = code
         header = f"## {kind}: {node_id} (implementation)\n"
@@ -105,43 +105,54 @@ def filter_code_for_category(code: str, node_id: str, kind: str, category: str) 
 
 
 def add_phase2_usage_nodes(
-    remaining_nodes: List[Tuple[float, Dict[str, Any]]],
-    target_method: Optional[str],
-    add_node_func,
-    category_nodes_limit: int,
+        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
+        target: Optional[str],
+        add_node_func,
+        category_nodes_limit: int,
 ) -> int:
     """Add usage-pattern nodes."""
     added = 0
+    if not target:
+        for score, node_data in remaining_nodes:
+            if added >= category_nodes_limit:
+                break
+            node_id = node_data.get("node", "").lower()
+            kind = node_data.get("metadata", {}).get("kind", "")
+            if "test" in node_id or "spec" in node_id:
+                if add_node_func(node_data, "usage-test", priority=95):
+                    added += 1
+            elif kind == "METHOD":
+                if add_node_func(node_data, "usage-method", priority=80):
+                    added += 1
+        return added
+    pattern = re.compile(rf"\b{re.escape(target)}\b", re.IGNORECASE)
     for score, node_data in remaining_nodes:
         if added >= category_nodes_limit:
             break
-        node_id = node_data.get("node", "").lower()
+        node_id = node_data.get("node", "")
         code = node_data.get("code", "")
-        kind = node_data.get("metadata", {}).get("kind", "")
-        if "test" in node_id and kind in ["CLASS", "METHOD"]:
-            if add_node_func(node_data, "usage-test", priority=95):
-                added += 1
+        node_name = node_id.split("/")[-1].split("#")[0].split(".")[-1].lower()
+        if target.lower() == node_name:
             continue
-        if kind in ["CLASS", "CONSTRUCTOR"] and target_method:
-            fragment = extract_usage_fragment(code, target_method, context_lines=5)
-            if fragment:
-                node_data_copy = node_data.copy()
-                node_data_copy["code"] = fragment
-                if add_node_func(node_data_copy, "usage-pattern", priority=90):
-                    added += 1
-                continue
-        if (
-            ("controller" in node_id and "test" not in node_id)
-            or ("service" in node_id and "test" not in node_id)
-            or kind == "METHOD"
-        ):
-            if add_node_func(node_data, "usage-pattern", priority=80):
+        if not pattern.search(code):
+            continue
+        priority = 80 + min(int(score), 15)
+        fragment = extract_usage_fragment(code, target, context_lines=5)
+        if fragment:
+            node_data_copy = node_data.copy()
+            node_data_copy["code"] = fragment
+            if add_node_func(node_data_copy, "usage-pattern", priority=priority):
+                added += 1
+        else:
+            if add_node_func(node_data, "usage-pattern", priority=priority - 10):
                 added += 1
     return added
 
 
 def add_phase2_implementation_nodes(
-    remaining_nodes: List[Tuple[float, Dict[str, Any]]], add_node_func, category_nodes_limit: int
+        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
+        add_node_func,
+        category_nodes_limit: int
 ) -> int:
     """Add implementation nodes."""
     added = 0
@@ -150,21 +161,21 @@ def add_phase2_implementation_nodes(
             break
         kind = node_data.get("metadata", {}).get("kind", "")
         code = node_data.get("code", "")
-        if (
-            (kind == "METHOD" and len(code) > 100)
-            or kind == "CONSTRUCTOR"
-            or "algorithm" in code.lower()
-        ):
+        is_implementation = (
+                (kind == "METHOD" and len(code) > 100)
+                or kind == "CONSTRUCTOR"
+                or "override" in code.lower())
+        if is_implementation:
             if add_node_func(node_data, "implementation", priority=75):
                 added += 1
     return added
 
 
 def add_phase2_testing_nodes(
-    remaining_nodes: List[Tuple[float, Dict[str, Any]]],
-    question: str,
-    add_node_func,
-    category_nodes_limit: int,
+        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
+        question: str,
+        add_node_func,
+        category_nodes_limit: int,
 ) -> int:
     """Add test-related nodes prioritized by target class match."""
     added = 0
@@ -176,30 +187,39 @@ def add_phase2_testing_nodes(
         code = node_data.get("code", "")
         node_id = node_data.get("node", "").lower()
         priority = 70
-        if target_class and target_class in node_id:
-            if kind == "METHOD" and "test" in node_id:
+        is_test_node = (
+                "test" in node_id
+                or "spec" in node_id
+                or "suite" in node_id)
+        has_test_annotation = (
+                "@test" in code.lower()
+                or "@before" in code.lower()
+                or "@after" in code.lower())
+        has_test_keywords = any(kw in code.lower() for kw in [
+            "assert", "should", "must", "expect", "verify"])
+        if target_class and target_class.lower() in node_id:
+            if kind == "METHOD" and is_test_node:
                 priority = 95
-            elif kind == "CLASS" and "test" in node_id:
+            elif kind == "CLASS" and is_test_node:
                 priority = 90
-            elif kind == "METHOD" and any(
-                w in node_data.get("metadata", {}).get("label", "").lower()
-                for w in ["should", "test"]
-            ):
+            elif kind == "METHOD" and has_test_keywords:
                 priority = 88
-        elif kind == "METHOD" and (
-            "test" in node_id or "@test" in code.lower() or "should" in node_id
-        ):
+        elif kind == "METHOD" and (is_test_node or has_test_annotation):
             priority = 85
-        elif kind == "CLASS" and "test" in node_id:
+        elif kind == "CLASS" and is_test_node:
             priority = 82
-        if priority > 70 or (kind in ["METHOD", "CLASS"] and "test" in node_id):
+        elif has_test_keywords:
+            priority = 75
+        if priority > 70 or is_test_node or has_test_annotation:
             if add_node_func(node_data, "test-method", priority=priority):
                 added += 1
     return added
 
 
 def add_phase2_definition_nodes(
-    remaining_nodes: List[Tuple[float, Dict[str, Any]]], add_node_func, category_nodes_limit: int
+        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
+        add_node_func,
+        category_nodes_limit: int
 ) -> int:
     """Add definition nodes."""
     added = 0
@@ -208,7 +228,7 @@ def add_phase2_definition_nodes(
             break
         kind = node_data.get("metadata", {}).get("kind", "")
         node_id = node_data.get("node", "").lower()
-        if kind in ["CLASS", "INTERFACE"]:
+        if kind in ["CLASS", "INTERFACE", "TRAIT", "OBJECT"]:
             if add_node_func(node_data, "definition-class", priority=90):
                 added += 1
         elif kind == "CONSTRUCTOR":
@@ -221,7 +241,9 @@ def add_phase2_definition_nodes(
 
 
 def add_phase2_exception_nodes(
-    remaining_nodes: List[Tuple[float, Dict[str, Any]]], add_node_func, category_nodes_limit: int
+        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
+        add_node_func,
+        category_nodes_limit: int
 ) -> int:
     """Add exception-handling nodes."""
     added = 0
@@ -230,20 +252,23 @@ def add_phase2_exception_nodes(
             break
         code = node_data.get("code", "")
         node_id = node_data.get("node", "").lower()
+        code_lower = code.lower()
         if "exception" in node_id or "error" in node_id:
             if add_node_func(node_data, "exception-class", priority=95):
                 added += 1
-        elif "throw" in code.lower() or "catch" in code.lower():
+        elif "throw" in code_lower or "catch" in code_lower:
             if add_node_func(node_data, "exception-handler", priority=85):
                 added += 1
-        elif "try" in code.lower():
+        elif "try" in code_lower or "recover" in code_lower:
             if add_node_func(node_data, "exception-try", priority=75):
                 added += 1
     return added
 
 
 def add_phase2_general_nodes(
-    remaining_nodes: List[Tuple[float, Dict[str, Any]]], add_node_func, category_nodes_limit: int
+        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
+        add_node_func,
+        category_nodes_limit: int
 ) -> int:
     """Add general-purpose nodes."""
     added = 0
@@ -252,7 +277,7 @@ def add_phase2_general_nodes(
             break
         kind = node_data.get("metadata", {}).get("kind", "")
         code = node_data.get("code", "")
-        if kind == "CLASS":
+        if kind in ["CLASS", "TRAIT", "OBJECT"]:
             if add_node_func(node_data, "general-class", priority=85):
                 added += 1
         elif kind == "METHOD" and len(code) > MAX_CODE_PREVIEW_SHORT:
@@ -265,19 +290,19 @@ def add_phase2_general_nodes(
 
 
 def phase2(
-    category: str,
-    remaining_nodes: List[Tuple[float, Dict[str, Any]]],
-    question: str,
-    target_method: Optional[str],
-    add_node_func,
-    category_nodes_limit: int,
+        category: str,
+        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
+        question: str,
+        target: Optional[str],
+        add_node_func,
+        category_nodes_limit: int,
 ) -> int:
     """
     Apply category-specific heuristics to add secondary context nodes.
     """
     if category == "usage":
         return add_phase2_usage_nodes(
-            remaining_nodes, target_method, add_node_func, category_nodes_limit
+            remaining_nodes, target, add_node_func, category_nodes_limit
         )
     elif category == "implementation":
         return add_phase2_implementation_nodes(remaining_nodes, add_node_func, category_nodes_limit)
@@ -295,12 +320,12 @@ def phase2(
 
 
 def build_context(
-    nodes: List[Tuple[float, Dict[str, Any]]],
-    category: str,
-    confidence: float,
-    top_nodes_limit: int = 1,
-    question: str = "",
-    target_method: Optional[str] = None,
+        nodes: List[Tuple[float, Dict[str, Any]]],
+        category: str,
+        confidence: float,
+        top_nodes_limit: int = 1,
+        question: str = "",
+        target: Optional[str] = None,
 ) -> str:
     """
     Builds an intent-aware, token-bounded context string from retrieved nodes.
@@ -311,13 +336,13 @@ def build_context(
         confidence: Confidence for the category (0.0–1.0)
         top_nodes_limit: Number of top_nodes extracted from question
         question: Original user question (used to infer targets)
-        target_method: Explicit target method to search for usages
+        target: Explicit target entity (method/class) to search for usages
 
     Returns:
         Final context string composed of titled sections
     """
     logger.debug(f"\nbuild_context start - Category: {category}, Confidence: {confidence:.2f}")
-    logger.debug(f"Target method: {target_method}, Number of nodes: {len(nodes)}")
+    logger.debug(f"Target: {target}, Number of nodes: {len(nodes)}")
 
     if not nodes:
         logger.debug("No nodes provided, using fallback")
@@ -339,8 +364,8 @@ def build_context(
         base_nodes_limit = min(base_nodes_limit + 1, 3)
     elif confidence < 0.5:
         base_nodes_limit = max(base_nodes_limit - 1, 1)
-    if not target_method and category == "usage":
-        target_method = extract_target_from_question(question)
+    if not target and category == "usage":
+        target = extract_target_from_question(question)
     context_sections: List[Tuple[int, str]] = []
     current_chars = 0
     seen_codes: Set[str] = set()
@@ -354,11 +379,11 @@ def build_context(
         metadata = node_data.get("metadata", {})
         kind = metadata.get("kind", "CODE")
         if (
-            not code
-            or len(code) < MIN_CODE_LENGTH
-            or code in seen_codes
-            or node_id in used_nodes
-            or code.startswith("<")
+                not code
+                or len(code) < MIN_CODE_LENGTH
+                or code in seen_codes
+                or node_id in used_nodes
+                or code.startswith("<")
         ):
             return False
         max_sections = get_max_sections_for_category(category)
@@ -390,10 +415,9 @@ def build_context(
 
     scored_nodes = []
     for score, node_data in nodes:
-        priority_score = get_node_priority_score(node_data, category)
+        priority_score = get_node_priority_score(node_data, category, target)
         combined_score = score + priority_score * 0.1
         scored_nodes.append((combined_score, node_data))
-
     base_nodes = scored_nodes[:top_nodes_limit]
     rest_nodes = scored_nodes[top_nodes_limit:]
     rest_nodes.sort(key=lambda x: x[0], reverse=True)
@@ -416,7 +440,7 @@ def build_context(
             category,
             remaining_nodes,
             question,
-            target_method,
+            target,
             add_node_section,
             category_nodes_limit,
         )
