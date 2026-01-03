@@ -11,7 +11,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
-default_classifier_model = "sentence-transformers/all-MiniLM-L6-v2"
 default_chroma_path = os.path.join(PROJECT_ROOT, "data", "embeddings", "chroma_storage")
 default_collection_name = "scg_embeddings"
 
@@ -23,7 +22,6 @@ METRICS = "metrics_log_spark.jsonl"
 JUNIE_URL = "http://127.0.0.1:8000/ask_junie"
 COMBINED_MAX = 997160
 
-embedding_model = "paraphrase-multilingual-MiniLM-L12-v2"
 
 GPT_MODEL = "gpt-4o-mini"
 RAGAS_TIMEOUT = 280.0
