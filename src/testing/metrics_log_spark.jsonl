@@ -48,9 +48,9 @@
       "ragas": {
         "context_recall": 1.0,
         "context_precision": 1.0,
-        "faithfulness": 0.905,
-        "answer_relevance": 0.931,
-        "ragas_score": 0.957
+        "faithfulness": 0.881,
+        "answer_relevance": 0.9,
+        "ragas_score": 0.942
       },
       "optional_metrics": {
         "context_entity_recall": 1.0
@@ -186,9 +186,9 @@
       "ragas": {
         "context_recall": 1.0,
         "context_precision": 1.0,
-        "faithfulness": 0.979,
-        "answer_relevance": 0.902,
-        "ragas_score": 0.969
+        "faithfulness": 1.0,
+        "answer_relevance": 0.982,
+        "ragas_score": 0.995
       },
       "optional_metrics": {
         "context_entity_recall": 0.0
@@ -196,11 +196,11 @@
     },
     "junie_mcp": {
       "ragas": {
-        "context_recall": 0.6,
+        "context_recall": 1.0,
         "context_precision": 1.0,
         "faithfulness": 1.0,
-        "answer_relevance": 0.905,
-        "ragas_score": 0.838
+        "answer_relevance": 0.0,
+        "ragas_score": 0.0
       },
       "optional_metrics": {
         "context_entity_recall": 0.0
@@ -214,11 +214,11 @@
   "ragas": {
     "claude": {
       "ragas": {
-        "context_recall": 0.045,
+        "context_recall": 0.028,
         "context_precision": 0.478,
-        "faithfulness": 0.978,
+        "faithfulness": 0.966,
         "answer_relevance": 0.925,
-        "ragas_score": 0.151
+        "ragas_score": 0.099
       },
       "optional_metrics": {
         "context_entity_recall": 0.0
@@ -226,11 +226,11 @@
     },
     "junie_mcp": {
       "ragas": {
-        "context_recall": 0.0,
+        "context_recall": 0.115,
         "context_precision": 1.0,
-        "faithfulness": 0.988,
-        "answer_relevance": 0.851,
-        "ragas_score": 0.0
+        "faithfulness": 1.0,
+        "answer_relevance": 0.91,
+        "ragas_score": 0.34
       },
       "optional_metrics": {
         "context_entity_recall": 0.0
@@ -246,24 +246,24 @@
       "ragas": {
         "context_recall": 1.0,
         "context_precision": 1.0,
-        "faithfulness": 0.963,
-        "answer_relevance": 0.936,
-        "ragas_score": 0.974
+        "faithfulness": 0.348,
+        "answer_relevance": 0.947,
+        "ragas_score": 0.674
       },
       "optional_metrics": {
-        "context_entity_recall": 0.4
+        "context_entity_recall": 0.0
       }
     },
     "junie_mcp": {
       "ragas": {
         "context_recall": 1.0,
         "context_precision": 1.0,
-        "faithfulness": 1.0,
-        "answer_relevance": 0.866,
+        "faithfulness": 0.93,
+        "answer_relevance": 0.928,
         "ragas_score": 0.963
       },
       "optional_metrics": {
-        "context_entity_recall": 0.4
+        "context_entity_recall": 0.0
       }
     }
   }
@@ -346,3 +346,7 @@
     }
   }
 }
+
+
+
+
