@@ -2,7 +2,7 @@ import re
 from typing import List, Optional
 
 
-def extract_usage_fragment(code: str, target: str, context_lines: int = 5) -> List[str]:
+def extract_usage_fragment(code: str, target: str, context_lines: int = 5) -> Optional[List[str]]:
     """
     Extracts a fragment of code showing usage of a target method or class.
 
@@ -24,7 +24,7 @@ def extract_usage_fragment(code: str, target: str, context_lines: int = 5) -> Li
         if pattern.search(line):
             start = max(0, i - context_lines)
             end = min(len(code_lines), i + context_lines + 1)
-            if any(start <= line <= end for line in used_lines):
+            if any(start <= line_number <= end for line_number in used_lines):
                 continue
             fragments.append("\n".join(code_lines[start:end]))
             used_lines.update(range(start, end))

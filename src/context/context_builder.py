@@ -109,6 +109,7 @@ def add_phase2_usage_nodes(
         target: Optional[str],
         add_node_func,
         category_nodes_limit: int,
+        max_score: float = 1.0
 ) -> int:
     """Add usage-pattern nodes."""
     added = 0
@@ -136,11 +137,15 @@ def add_phase2_usage_nodes(
             continue
         if not pattern.search(code):
             continue
-        priority = 80 + min(int(score), 15)
-        fragment = extract_usage_fragment(code, target, context_lines=5)
-        if fragment:
+        if max_score > 0:
+            normalized_score = min(score / max_score, 1.0)
+        else:
+            normalized_score = 0.5
+        priority = 80 + int(normalized_score * 15)
+        fragments = extract_usage_fragment(code, target, context_lines=5)
+        if fragments:
             node_data_copy = node_data.copy()
-            node_data_copy["code"] = fragment
+            node_data_copy["code"] = "\n...\n".join(fragments)
             if add_node_func(node_data_copy, "usage-pattern", priority=priority):
                 added += 1
         else:
@@ -296,13 +301,14 @@ def phase2(
         target: Optional[str],
         add_node_func,
         category_nodes_limit: int,
+        max_score: float = 1.0,
 ) -> int:
     """
     Apply category-specific heuristics to add secondary context nodes.
     """
     if category == "usage":
         return add_phase2_usage_nodes(
-            remaining_nodes, target, add_node_func, category_nodes_limit
+            remaining_nodes, target, add_node_func, category_nodes_limit, max_score
         )
     elif category == "implementation":
         return add_phase2_implementation_nodes(remaining_nodes, add_node_func, category_nodes_limit)
@@ -422,6 +428,7 @@ def build_context(
     rest_nodes = scored_nodes[top_nodes_limit:]
     rest_nodes.sort(key=lambda x: x[0], reverse=True)
     scored_nodes = base_nodes + rest_nodes
+    max_score = max((s for s, _ in scored_nodes), default=1.0)
 
     for score, node_data in scored_nodes:
         logger.info(node_data.get("node", ""))
@@ -443,6 +450,7 @@ def build_context(
             target,
             add_node_section,
             category_nodes_limit,
+            max_score,
         )
         logger.debug(f"Phase 2: Added {added_category} category-specific nodes")
 
