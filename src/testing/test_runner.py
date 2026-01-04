@@ -221,5 +221,5 @@ def evaluate_rag_metrics(ground_truth_file: str):
 
 if __name__ == "__main__":
     # add_ground_context("ground_truth_spark.json", "../../data/embeddings/node_embedding.json")
-    evaluate_rag_metrics("ragas_fix.json")
+    evaluate_rag_metrics("ground_truth_spark_ragas_ready.json")
     evaluate_all("ground_truth_spark_fix.json")
