@@ -46,3 +46,4 @@ def _get_cached_model() -> bool:
     """
     get_codebert_model()
     return True
+

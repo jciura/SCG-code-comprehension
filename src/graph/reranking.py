@@ -1,39 +1,12 @@
-import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
+from core.models import IntentAnalysis
 from src.core.intent_analyzer import IntentCategory
+from context.context_extraction import extract_target_from_question
 
-
-def extract_target_class_name(query: str) -> Optional[str]:
-    """
-    Extracts target class name for testing queries.
-
-    Args:
-        query: User query string
-
-    Returns:
-        Extracted class name or None if not found
-    """
-    class_match = re.search(r"for\s+(\w+)\s+class", query.lower())
-    if class_match:
-        return class_match.group(1).lower()
-
-    class_patterns = [
-        r"(\w+controller)\s+class",
-        r"(\w+service)\s+class",
-        r"(\w+repository)\s+class",
-        r"tests?\s+for\s+(\w+)",
-        r"(\w+)\s+tests?",
-        r"test.*(\w+controller)",
-        r"test.*(\w+service)",
-    ]
-    for pattern in class_patterns:
-        match = re.search(pattern, query.lower())
-        if match:
-            return match.group(1).lower()
-    return None
+ignored_kinds = frozenset({"PARAMETER", "VARIABLE", "IMPORT", "VALUE"})
 
 
 def testing_boost(
@@ -57,37 +30,36 @@ def testing_boost(
         Adjusted score with testing boosts applied
     """
     kind = metadata.get("kind", "")
-    label = metadata.get("label", "")
-
-    if target_class_name and target_class_name in node_id.lower():
-        if kind == "METHOD" and "test" in node_id.lower():
+    if kind in ignored_kinds:
+        return adjusted_score * 0.3
+    label = metadata.get("label", "").lower()
+    node_id_lower = node_id.lower()
+    code_lower = code.lower()
+    is_test_node = any(key_word in node_id_lower for key_word in ["test", "spec", "suite"])
+    has_test_annotation = "@test" in code_lower
+    has_scala_test = any(key_word in code_lower for key_word in [
+        "shouldbe", "should be", "mustbe", "must be", "assertresult", "intercept["])
+    has_test_label = any(key_word in label for key_word in ["should", "test", "must", "expect"])
+    is_test_related = is_test_node or has_test_annotation or has_scala_test or has_test_label
+    if not is_test_related:
+        return adjusted_score * 0.2
+    if target_class_name and target_class_name.lower() in node_id_lower:
+        if kind == "METHOD" and is_test_node:
             adjusted_score *= 10.0
-            logger.debug(f"boost for test method: {node_id} - {adjusted_score:.3f}")
-        elif kind == "CLASS" and "test" in node_id.lower():
+        elif kind == "CLASS" and is_test_node:
             adjusted_score *= 8.0
-            logger.debug(f"boost for test class: {node_id} - {adjusted_score:.3f}")
-        elif kind == "METHOD" and any(
-            test_word in label.lower() for test_word in ["should", "test"]
-        ):
+        elif kind == "METHOD" and has_test_label:
             adjusted_score *= 7.0
-            logger.debug(f"test method boost: {node_id} - {adjusted_score:.3f}")
-
-    if "test" in node_id.lower():
+    elif is_test_node:
         if kind == "METHOD":
             adjusted_score *= 3.0
         elif kind == "CLASS":
             adjusted_score *= 2.5
-    elif "@test" in code.lower():
+    elif has_test_annotation or has_scala_test:
         adjusted_score *= 2.0
-    elif kind == "METHOD" and ("should" in label.lower() or "test" in label.lower()):
+    elif has_test_label:
         adjusted_score *= 1.8
 
-    if (
-        "test" not in node_id.lower()
-        and "@test" not in code.lower()
-        and not any(test_word in label.lower() for test_word in ["should", "test"])
-    ):
-        adjusted_score *= 0.2
     return adjusted_score
 
 
@@ -105,18 +77,26 @@ def usage_boost(adjusted_score: float, node_id: str, metadata: Dict[str, Any], c
         Adjusted score with usage boosts applied
     """
     kind = metadata.get("kind", "")
-
-    if "controller" in node_id.lower() and "test" not in node_id.lower():
-        adjusted_score *= 2.0
-    elif "service" in node_id.lower():
-        adjusted_score *= 1.5
-    elif kind == "METHOD" and any(
-        annotation in code
-        for annotation in ["@GetMapping", "@PostMapping", "@PutMapping", "@DeleteMapping"]
-    ):
-        adjusted_score *= 1.8
-    elif "repository" in node_id.lower():
+    if kind in ignored_kinds:
+        return adjusted_score
+    node_id_lower = node_id.lower()
+    code_lower = code.lower()
+    if "test" in node_id_lower or "spec" in node_id_lower:
+        if kind == "METHOD":
+            adjusted_score *= 2.5
+        elif kind == "CLASS":
+            adjusted_score *= 2.0
+    elif kind == "METHOD":
+        if "override" in code_lower or "extends" in code_lower:
+            adjusted_score *= 1.8
+        elif len(code) > 200:
+            adjusted_score *= 1.5
+        else:
+            adjusted_score *= 1.3
+    elif kind in ["CLASS", "OBJECT", "TRAIT"]:
         adjusted_score *= 1.3
+    elif kind == "CONSTRUCTOR":
+        adjusted_score *= 1.2
     return adjusted_score
 
 
@@ -133,17 +113,25 @@ def definition_boost(adjusted_score: float, metadata: Dict[str, Any], code: str)
         Adjusted score with definition boosts applied
     """
     kind = metadata.get("kind", "")
-    label = metadata.get("label", "")
+    if kind in ignored_kinds:
+        return adjusted_score
+    code_lower = code.lower()
     if kind == "CLASS":
         adjusted_score *= 1.8
+        if "case class" in code_lower:
+            adjusted_score *= 1.1
+    elif kind == "TRAIT":
+        adjusted_score *= 1.7
     elif kind == "INTERFACE":
         adjusted_score *= 1.6
+    elif kind == "OBJECT":
+        adjusted_score *= 1.5
     elif kind == "CONSTRUCTOR":
         adjusted_score *= 1.4
-    elif kind == "METHOD" and label.lower() in ["main", "init", "setup"]:
+    elif kind == "METHOD":
         adjusted_score *= 1.3
-    elif kind == "VARIABLE" and "final" in code.lower():
-        adjusted_score *= 0.9
+    elif kind == "TYPE":
+        adjusted_score *= 1.2
     return adjusted_score
 
 
@@ -160,15 +148,21 @@ def implementation_boost(adjusted_score: float, metadata: Dict[str, Any], code: 
         Adjusted score with implementation boosts applied
     """
     kind = metadata.get("kind", "")
-
+    if kind in ignored_kinds:
+        return adjusted_score
+    code_lower = code.lower()
     if kind == "METHOD":
         adjusted_score *= 1.5
+        if "override" in code_lower:
+            adjusted_score *= 1.2
     elif kind == "CONSTRUCTOR":
         adjusted_score *= 1.3
-    elif kind == "CLASS" and "abstract" in code.lower():
+    elif kind == "CLASS" and "abstract" in code_lower:
         adjusted_score *= 1.2
-    elif kind == "VARIABLE":
-        adjusted_score *= 0.8
+    elif kind == "TRAIT":
+        adjusted_score *= 1.1
+    elif kind == "OBJECT":
+        adjusted_score *= 1.1
 
     return adjusted_score
 
@@ -189,14 +183,21 @@ def exception_boost(
         Adjusted score with exception boosts applied
     """
     kind = metadata.get("kind", "")
+    if kind in ignored_kinds:
+        return adjusted_score
     label = metadata.get("label", "")
-
-    if "exception" in node_id.lower() or "error" in node_id.lower():
+    node_id_lower = node_id.lower()
+    code_lower = code.lower()
+    if "exception" in node_id_lower or "error" in node_id_lower:
         adjusted_score *= 2.0
     elif kind == "CLASS" and ("Exception" in label or "Error" in label):
         adjusted_score *= 1.8
-    elif "throw" in code.lower() or "catch" in code.lower():
+    elif "throw " in code_lower or "catch" in code_lower:
         adjusted_score *= 1.5
+    elif "recover" in code_lower:
+        adjusted_score *= 1.4
+    elif any(p in code for p in ["Try[", "Try {", "Either[", "Option["]):
+        adjusted_score *= 1.2
 
     return adjusted_score
 
@@ -207,7 +208,7 @@ def general_factors(
     metadata: Dict[str, Any],
     code: str,
     query: str,
-    category: str,
+    category: IntentCategory,
     confidence: float,
 ) -> float:
     """
@@ -226,13 +227,11 @@ def general_factors(
         Adjusted score with general factors applied
     """
     kind = metadata.get("kind", "")
-    label = metadata.get("label", "")
-
+    label = metadata.get("label", "").lower()
     if len(code) < 100:
         adjusted_score *= 0.7
     elif len(code) > 1000:
         adjusted_score *= 1.1
-
     importance = metadata.get("importance", {})
     if isinstance(importance, dict):
         combined_score = importance.get("combined", 0.0)
@@ -254,20 +253,27 @@ def general_factors(
             adjusted_score *= 1.3
         elif in_degree > 2:
             adjusted_score *= 1.1
-
     query_terms = set(query.lower().split())
-    label_terms = set(label.lower().split())
+    label_terms = set(label.split())
     node_id_terms = set(
-        node_id.lower().replace(".", " ").replace("(", " ").replace(")", " ").split()
+        node_id.lower()
+        .replace(".", " ")
+        .replace("(", " ")
+        .replace(")", " ")
+        .replace("#", " ")
+        .replace("/", " ")
+        .replace("!", " ")
+        .replace("-", " ")
+        .split()
     )
-
     term_overlap = len(query_terms.intersection(label_terms.union(node_id_terms)))
     if term_overlap > 0:
         adjusted_score *= 1.0 + 0.15 * term_overlap
-    if kind == "PARAMETER" or kind == "VARIABLE":
+    if kind in ignored_kinds:
         adjusted_score *= 0.6
-
-    if category != "testing" and "test" in node_id.lower():
+    if category != IntentCategory.TESTING and (
+        "test" in node_id.lower() or "spec" in node_id.lower()
+    ):
         adjusted_score *= 0.8
     if confidence > 0.7:
         adjusted_score *= 1.0 + (confidence - 0.7) * 0.5
@@ -276,7 +282,7 @@ def general_factors(
 
 
 def rerank_results(
-    query: str, nodes: List[Tuple[float, Dict[str, Any]]], analyses: Dict[str, Any]
+    query: str, nodes: List[Tuple[float, Dict[str, Any]]], analysis: IntentAnalysis
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Reranks retrieved nodes based on intent category and various heuristics.
@@ -284,13 +290,13 @@ def rerank_results(
     Args:
         query: Original user query text
         nodes: Retrieved items as (score, node_data)
-        analyses: Analysis payload with category and confidence
+        analysis: Analysis payload with category and confidence
 
     Returns:
         Reranked items sorted by adjusted score (descending)
     """
-    category = analyses.get("category", "general")
-    confidence = analyses.get("confidence", 0.5)
+    category = getattr(analysis, "primary_intent", IntentCategory.GENERAL)
+    confidence = getattr(analysis, "confidence", 0.5)
 
     try:
         intent_category = IntentCategory(category)
@@ -299,7 +305,7 @@ def rerank_results(
 
     target_class_name = None
     if intent_category == IntentCategory.TESTING:
-        target_class_name = extract_target_class_name(query)
+        target_class_name = extract_target_from_question(query)
         if target_class_name:
             logger.debug(f"Testing category, target class: {target_class_name}")
 
@@ -331,7 +337,7 @@ def rerank_results(
             adjusted_score = exception_boost(adjusted_score, node_id, metadata, code)
 
         adjusted_score = general_factors(
-            adjusted_score, node_id, metadata, code, query, category, confidence
+            adjusted_score, node_id, metadata, code, query, intent_category, confidence
         )
         reranked.append((adjusted_score, node_data))
 

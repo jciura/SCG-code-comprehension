@@ -3,6 +3,7 @@ from typing import Any, Dict
 
 import networkx as nx
 
+SKIP_NODE_KINDS = {"PARAMETER", "VARIABLE", "VALUE", "SELF_PARAMETER"}
 
 def load_gdf(filepath: str) -> nx.DiGraph:
     """
@@ -25,6 +26,8 @@ def load_gdf(filepath: str) -> nx.DiGraph:
     edge_section = False
     node_attrs = []
     edge_attrs = []
+
+    skipped_nodes = set()
     for line in lines:
         line = line.strip()
         if line.startswith("nodedef>"):
@@ -46,6 +49,12 @@ def load_gdf(filepath: str) -> nx.DiGraph:
             values = line.split(",")
             node_id = values[0].strip()
             attr_dict = {node_attrs[i]: values[i].strip() for i in range(1, len(values))}
+
+            node_kind = attr_dict.get("kind")
+            if node_kind in SKIP_NODE_KINDS:
+                skipped_nodes.add(node_id)
+                continue
+
             G.add_node(node_id, **attr_dict)
 
         if edge_section:
@@ -55,6 +64,10 @@ def load_gdf(filepath: str) -> nx.DiGraph:
             source = values[0].strip()
             target = values[1].strip()
             attr_dict = {edge_attrs[i]: values[i].strip() for i in range(2, len(values))}
+
+            if source in skipped_nodes or target in skipped_nodes:
+                continue
+
             G.add_edge(source, target, **attr_dict)
 
     return G

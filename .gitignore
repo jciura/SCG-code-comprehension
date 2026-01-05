@@ -5,8 +5,6 @@ __pycache__/
 projects/rich
 *.pyc
 *.sqlite3
-data/embeddings/chroma_storage/
-data/embeddings/node_context_history.json
 src/logs/metrics_log.jsonl
 *.pyo
 .uv/
@@ -15,3 +13,6 @@ uv.lock
 .pre-commit/
 .pre-commit-cache/
 inzynierka_pro1.egg-info/
+.env
+data/embeddings/
+data/graph/

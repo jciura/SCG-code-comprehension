@@ -100,4 +100,6 @@ def get_or_create_collection(
         chromadb.Collection: The created or existing Chroma collection.
     """
     client = get_chroma_client(storage_path, allow_reset)
+    if not metadata:
+        metadata = {"description": "Code embeddings collection"}
     return client.get_or_create_collection(name=collection_name, metadata=metadata or {})

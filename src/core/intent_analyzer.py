@@ -1,248 +1,154 @@
-import json
 import re
 from typing import Any, Dict, Optional
 
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
-
-from src.core.config import default_classifier_embeddings_path, default_classifier_model
 from src.core.models import IntentAnalysis, IntentCategory
 
 
 class IntentAnalyzer:
-    def __init__(
-        self,
-        classifier_embeddings_path: str = default_classifier_embeddings_path,
-        classifier_model: str = default_classifier_model,
-    ):
+    def __init__(self):
         """
-        Initializes the analyzer with paths and model identifiers.
-
-        Args:
-            classifier_embeddings_path (str): Path to JSON file with example embeddings.
-            classifier_model (str): SentenceTransformer model name used for encoding.
+               Initialize intent patterns and context limits for each intent category.
         """
-        self.classifier_embeddings_path = classifier_embeddings_path
-        self.classifier_model_name = classifier_model
-        self._classifier_model: Optional[SentenceTransformer] = None
-        self._classifier_embeddings: Optional[Dict] = None
-
         self.intent_patterns = {
             IntentCategory.USAGE: {
                 "keywords": [
-                    "used",
-                    "called",
-                    "invoked",
-                    "where",
-                    "references",
-                    "usage",
-                    "utilized",
+                    "used", "called", "invoked", "where", "references", "usage",
+                    "używana", "używane", "używany", "wywoływana", "wywoływane",
+                    "wywoływany", "gdzie", "referencje", "użycie", "wykorzystanie",
+                    "korzysta", "wywołuje",
                 ],
-                "patterns": [r"where.*used", r"how.*called", r".*usage.*", r".*referenced.*"],
+                "patterns": [
+                    r"where.*used", r"how.*called", r".*usage.*", r".*referenced.*",
+                    r"gdzie.*używ", r"gdzie.*wywoł", r"co.*korzysta", r"kto.*używa",
+                    r".*wykorzyst.*",
+                ],
                 "weight": 2.0,
             },
             IntentCategory.DEFINITION: {
-                "keywords": ["what is", "describe", "explain", "define", "meaning", "purpose"],
-                "patterns": [r"what\s+is", r"describe.*", r"explain.*", r"define.*"],
+                "keywords": [
+                    "what is", "describe", "explain", "define", "meaning", "purpose",
+                    "co to jest", "czym jest", "opisz", "wyjaśnij", "zdefiniuj",
+                    "znaczenie", "cel", "opis", "definicja",
+                ],
+                "patterns": [
+                    r"what\s+is", r"describe.*", r"explain.*", r"define.*",
+                    r"co\s+to\s+jest", r"czym\s+jest", r"opisz.*", r"wyjaśnij.*",
+                    r"zdefiniuj.*",
+                ],
                 "weight": 1.8,
             },
             IntentCategory.IMPLEMENTATION: {
                 "keywords": [
-                    "how does",
-                    "implementation",
-                    "algorithm",
-                    "logic",
-                    "works",
-                    "internally",
+                    "how does", "implementation", "algorithm", "logic", "works",
+                    "internally", "jak działa", "implementacja", "algorytm", "logika",
+                    "działanie", "wewnętrznie", "mechanizm", "sposób działania",
                 ],
                 "patterns": [
-                    r"how\s+does.*work",
-                    r"implementation.*",
-                    r"algorithm.*",
-                    r".*logic.*",
+                    r"how\s+does.*work", r"implementation.*", r"algorithm.*",
+                    r".*logic.*", r"jak\s+działa", r"jak\s+jest\s+zaimplementowan",
+                    r"implementacja.*", r"algorytm.*", r".*logik.*", r"mechanizm.*",
                 ],
                 "weight": 1.6,
             },
             IntentCategory.TESTING: {
-                "keywords": ["test", "testing", "junit", "mock", "verify", "unit test"],
-                "patterns": [r".*test.*", r"junit.*", r"mock.*", r".*testing.*"],
+                "keywords": [
+                    "test", "testing", "junit", "mock", "verify", "unit test",
+                    "testy", "testowanie", "testowy", "mockowanie", "weryfikacja",
+                    "test jednostkowy", "przypadek testowy",
+                ],
+                "patterns": [
+                    r".*test.*", r"junit.*", r"mock.*", r".*testing.*",
+                    r"jak.*testowan", r"przypadk.*testow", r".*mockow.*",
+                ],
                 "weight": 1.5,
             },
             IntentCategory.EXCEPTION: {
-                "keywords": ["error", "exception", "throw", "catch", "fail", "handling"],
-                "patterns": [r".*error.*", r".*exception.*", r".*fail.*", r".*throw.*"],
+                "keywords": [
+                    "error", "exception", "throw", "catch", "fail", "handling",
+                    "błąd", "wyjątek", "rzucanie", "przechwytywanie",
+                    "obsługa błędów", "obsługa wyjątków", "niepowodzenie",
+                ],
+                "patterns": [
+                    r".*error.*", r".*exception.*", r".*fail.*", r".*throw.*",
+                    r".*błąd.*", r".*błęd.*", r".*wyjąt.*", r".*obsług.*błęd.*",
+                    r".*obsług.*wyjąt.*", r"jak.*rzuca.*wyjąt",
+                ],
                 "weight": 1.4,
             },
             IntentCategory.TOP: {
                 "keywords": [
-                    "important classes",
-                    "main classes",
-                    "core classes",
-                    "key classes",
-                    "most connected",
-                    "biggest class",
-                    "largest class",
-                    "most lines",
-                    "central",
-                    "core",
-                    "dominant",
-                    "important modules",
-                    "useless",
-                    "not importantnajważniejsze klasy",
-                    "główne klasy",
-                    "centralne klasy",
-                    "klasy z największym kodem",
-                    "największe klasy",
-                    "najbardziej połączone klasy",
-                    "najmniej ważne klasy",
-                    "najmniej linii",
-                    "najmniej połączeń",
-                    "least",
-                    "smallest classes",
-                    "least lines",
-                    "not core",
-                    "najmniejszą",
-                    "najmniejsze",
-                    "najmniej",
-                    "min",
-                    "max",
+                    "important classes", "main classes", "core classes", "key classes",
+                    "most connected", "biggest class", "largest class", "most lines",
+                    "central", "core", "dominant", "important modules",
+                    "najważniejsze klasy", "główne klasy", "centralne klasy",
+                    "największe klasy", "najbardziej połączone klasy",
+                    "najmniej ważne klasy", "least", "smallest classes",
+                    "list", "show"
                 ],
                 "patterns": [
-                    r"najważniejsz.*klas",
-                    r"główn.*klas",
-                    r"centraln.*klas",
-                    r"największ.*klas",
-                    r"połączon.*klas",
-                    r"klas.*największ.*kod",
+                    r"najważniejsz.*klas", r"główn.*klas", r"centraln.*klas",
+                    r"największ.*klas", r"połączon.*klas", r"klas.*największ.*kod",
                     r"most\s+(connected|important|significant|central|biggest|dominant).*class",
-                    r"key\s+class",
-                    r"core\s+class",
-                    r"main\s+class",
-                    r"najmniejsz.*klas",
+                    r"key\s+class", r"core\s+class", r"main\s+class", r"najmniejsz.*klas",
                 ],
-                "weight": 1.2,
+                "weight": 2.0,
             },
         }
-
         self.context_limits = {
             IntentCategory.DEFINITION: {
-                "max_tokens": 1500,
-                "max_context_chars": 18000,
-                "base_nodes": 4,
-                "category_nodes": 3,
-                "fill_nodes": 2,
+                "max_chars": 500000,
+                "base_nodes": 5,
+                "category_nodes": 7,
+                "fill_nodes": 4
             },
             IntentCategory.IMPLEMENTATION: {
-                "max_tokens": 1800,
-                "max_context_chars": 15000,
-                "base_nodes": 5,
-                "category_nodes": 4,
-                "fill_nodes": 3,
+                "max_chars": 500000,
+                "base_nodes": 7,
+                "category_nodes": 6,
+                "fill_nodes": 5
             },
             IntentCategory.USAGE: {
-                "max_tokens": 1200,
-                "max_context_chars": 12000,
-                "base_nodes": 3,
-                "category_nodes": 4,
-                "fill_nodes": 2,
+                "max_chars": 600000,
+                "base_nodes": 5,
+                "category_nodes": 6,
+                "fill_nodes": 4
             },
             IntentCategory.TESTING: {
-                "max_tokens": 1200,
-                "max_context_chars": 15000,
-                "base_nodes": 4,
-                "category_nodes": 4,
-                "fill_nodes": 3,
+                "max_chars": 400000,
+                "base_nodes": 6,
+                "category_nodes": 6,
+                "fill_nodes": 5
             },
             IntentCategory.EXCEPTION: {
-                "max_tokens": 1500,
-                "max_context_chars": 14000,
-                "base_nodes": 4,
-                "category_nodes": 3,
-                "fill_nodes": 2,
+                "max_chars": 400000,
+                "base_nodes": 6,
+                "category_nodes": 5,
+                "fill_nodes": 4
             },
             IntentCategory.GENERAL: {
-                "max_tokens": 1000,
-                "max_context_chars": 8000,
-                "base_nodes": 3,
-                "category_nodes": 2,
-                "fill_nodes": 2,
+                "max_chars": 600000,
+                "base_nodes": 10,
+                "category_nodes": 4,
+                "fill_nodes": 4
             },
+            IntentCategory.TOP: {
+                "max_chars": 600000,
+                "base_nodes": 8,
+                "category_nodes": 5,
+                "fill_nodes": 4
+            }
         }
 
-    @property
-    def classifier_model(self) -> SentenceTransformer:
+    def classify_question(self, question: str) -> IntentAnalysis:
         """
-        Lazily loads and returns the sentence-transformer classifier model.
+            Classify a user question into an intent category.
 
-        Returns:
-            SentenceTransformer: Loaded model instance.
-        """
-        if self._classifier_model is None:
-            self._classifier_model = SentenceTransformer(self.classifier_model_name)
-        return self._classifier_model
+            Args:
+                question (str): User question.
 
-    @property
-    def classifier_embeddings(self) -> Dict:
-        """
-        Lazily loads and returns classifier example embeddings from disk.
-
-        Returns:
-            Dict: Mapping of label -> list of embedding vectors.
-
-        Raises:
-            FileNotFoundError: If the embeddings file cannot be found.
-        """
-        if self._classifier_embeddings is None:
-            try:
-                with open(self.classifier_embeddings_path, "r", encoding="utf-8") as f:
-                    self._classifier_embeddings = json.load(f)
-            except FileNotFoundError:
-                raise FileNotFoundError(
-                    f"Classifier embeddings not found at {self.classifier_embeddings_path}"
-                )
-        return self._classifier_embeddings
-
-    def classify_question_basic(self, question: str) -> str:
-        """
-        Classifies a question using cosine similarity against example embeddings.
-
-        Args:
-            question (str): Natural-language question text.
-
-        Returns:
-            str: Best-matching label (string value of `IntentCategory`).
-        """
-        question_emb = self.classifier_model.encode([question], convert_to_tensor=False)[0]
-        best_score = -1
-        best_label = IntentCategory.GENERAL.value
-        for label, examples in self.classifier_embeddings.items():
-            for emb in examples:
-                score = cosine_similarity([question_emb], [emb])[0][0]
-                if score > best_score:
-                    best_score = score
-                    best_label = label
-        return best_label
-
-    def enhanced_classify_question(self, question: str) -> IntentAnalysis:
-        """
-        Produces an enhanced intent analysis with heuristics and confidence.
-
-        Starts from the basic embedding-based label, maps legacy labels, then
-        applies keyword and regex pattern scores to derive a primary intent,
-        confidence, secondary intents, and requirement flags.
-
-        Args:
-            question (str): Question text to analyze.
-
-        Returns:
-            IntentAnalysis: Structured analysis with primary intent and details.
-        """
-        basic_category = self.classify_question_basic(question)
-
-        category_mapping = {"medium": "definition", "specific": "implementation"}
-        if basic_category in category_mapping:
-            basic_category = category_mapping[basic_category]
-
+            Returns:
+                IntentAnalysis: Detected intent, confidence and scores.
+            """
         question_lower = question.lower()
         scores = {}
         for category, config in self.intent_patterns.items():
@@ -257,77 +163,56 @@ class IntentAnalyzer:
 
         if all(score == 0.0 for score in scores.values()):
             return IntentAnalysis(
-                primary_intent=IntentCategory(basic_category),
+                primary_intent=IntentCategory.GENERAL,
                 confidence=0.5,
                 scores=scores,
-                requires_examples=False,
-                requires_usage_info=False,
-                requires_implementation_details=False,
                 enhanced=False,
             )
-        requires_examples = False
-        requires_usage_info = False
-        requires_implementation_details = False
         best_category = max(scores, key=scores.get)
         total_score = sum(scores.values())
         confidence = scores[best_category] / total_score if total_score > 0 else 0.5
-        primary_intent_enum = IntentCategory(best_category)
-        if primary_intent_enum == IntentCategory.USAGE:
-            requires_usage_info = True
-        elif primary_intent_enum in [
-            IntentCategory.DEFINITION,
-            IntentCategory.TESTING,
-            IntentCategory.EXCEPTION,
-        ]:
-            requires_examples = True
-        elif primary_intent_enum == IntentCategory.IMPLEMENTATION:
-            requires_implementation_details = True
         return IntentAnalysis(
-            primary_intent=primary_intent_enum,
+            primary_intent=IntentCategory(best_category),
             confidence=min(confidence, 1.0),
             scores=scores,
-            requires_examples=requires_examples,
-            requires_usage_info=requires_usage_info,
-            requires_implementation_details=requires_implementation_details,
             enhanced=True,
         )
 
+    def enhanced_classify_question(self, question: str) -> IntentAnalysis:
+        """
+            Classify a question using enhanced analysis.
+
+            Args:
+                question (str): User question.
+
+            Returns:
+                IntentAnalysis: Intent classification result.
+            """
+        return self.classify_question(question)
+
+    def classify_question_basic(self, question: str) -> str:
+        """
+            Classify a question and return only the intent category.
+
+            Args:
+                question (str): User question.
+
+            Returns:
+                str: Intent category value.
+            """
+        return self.classify_question(question).primary_intent.value
+
     def get_context_limits(self, intent: IntentCategory) -> Dict[str, Any]:
         """
-        Returns token/section limits for the given intent.
+            Return context limits for a given intent category.
 
-        Args:
-            intent (IntentCategory): Target intent category.
+            Args:
+                intent (IntentCategory): Intent category.
 
-        Returns:
-            Dict[str, Any]: Limits including `max_tokens`, `max_context_chars`,
-                `base_nodes`, `category_nodes`, and `fill_nodes`.
-        """
-        return self.context_limits.get(
-            intent,
-            {
-                "max_tokens": 600,
-                "max_context_chars": 3000,
-                "base_nodes": 2,
-                "category_nodes": 1,
-                "fill_nodes": 1,
-            },
-        )
-
-    def is_usage_question(self, question: str) -> bool:
-        """
-        Checks if a question likely asks about *usage*.
-
-        Args:
-            question (str): Question text.
-
-        Returns:
-            bool: True if usage-related keywords are present.
-        """
-        question_lower = question.lower()
-        return any(
-            word in question_lower for word in ["used", "where", "usage", "called", "referenced"]
-        )
+            Returns:
+                Dict[str, Any]: Context limits configuration.
+            """
+        return self.context_limits.get(intent, self.context_limits[IntentCategory.GENERAL])
 
 
 _intent_analyzer: Optional[IntentAnalyzer] = None
@@ -335,13 +220,11 @@ _intent_analyzer: Optional[IntentAnalyzer] = None
 
 def get_intent_analyzer() -> IntentAnalyzer:
     """
-    Returns a cached singleton of `IntentAnalyzer`.
+        Return a singleton instance of IntentAnalyzer.
 
-    Lazily constructs the analyzer on first access.
-
-    Returns:
-        IntentAnalyzer: Shared analyzer instance.
-    """
+        Returns:
+            IntentAnalyzer: Shared analyzer instance.
+        """
     global _intent_analyzer
     if _intent_analyzer is None:
         _intent_analyzer = IntentAnalyzer()
@@ -349,5 +232,13 @@ def get_intent_analyzer() -> IntentAnalyzer:
 
 
 def classify_question(question: str) -> str:
-    analyzer = get_intent_analyzer()
-    return analyzer.classify_question_basic(question)
+    """
+        Classify a question and return its intent category.
+
+        Args:
+            question (str): User question.
+
+        Returns:
+            str: Intent category value.
+        """
+    return get_intent_analyzer().classify_question_basic(question)

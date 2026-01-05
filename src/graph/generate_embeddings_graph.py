@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 from typing import Any, Dict, List
 
 import numpy as np
@@ -61,7 +62,7 @@ def generate_embeddings_graph(texts: List[str], model_name: str, batch_size: int
     return normalize(embeddings, norm="l2")
 
 
-def extract_code_block_from_file(uri: str, location: str) -> str:
+def extract_code_block_from_file(file_path: Path, location: str) -> str:
     """
     Extracts a code block (e.g., class or method) from a source file.
 
@@ -80,7 +81,7 @@ def extract_code_block_from_file(uri: str, location: str) -> str:
         start, _ = location.split(";")
         start_line, _ = map(int, start.split(":"))
 
-        with open(uri, "r", encoding="utf-8") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
         if start_line > len(lines):
@@ -106,7 +107,7 @@ def extract_code_block_from_file(uri: str, location: str) -> str:
         return f"<Could not extract code block: {e}>"
 
 
-def extract_code_from_file(uri: str, location: str) -> str:
+def extract_code_from_file(file_path: Path, location: str) -> str:
     """
     Extracts code from a given file starting at a specified line.
 
@@ -125,7 +126,7 @@ def extract_code_from_file(uri: str, location: str) -> str:
         start, _ = location.split(";")
         start_line, _ = map(int, start.split(":"))
 
-        with open(uri, "r", encoding="utf-8") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
         if start_line > len(lines):
@@ -139,7 +140,7 @@ def extract_code_from_file(uri: str, location: str) -> str:
         return f"<Could not extract code: {e}>"
 
 
-def node_to_text(data: Dict[str, Any]) -> Dict[str, str]:
+def node_to_text(data: Dict[str, Any], project_root: Path) -> Dict[str, str]:
     """
     Converts a graph node's metadata into textual representation.
 
@@ -162,10 +163,14 @@ def node_to_text(data: Dict[str, Any]) -> Dict[str, str]:
     uri = data.get("uri", "")
     location = data.get("location", "")
 
+    file_path = Path(uri)
+    if not file_path.is_absolute():
+        file_path = project_root / file_path
+
     code = (
-        extract_code_block_from_file(uri, location)
+        extract_code_block_from_file(file_path, location)
         if kind in ["CLASS", "METHOD"]
-        else extract_code_from_file(uri, location)
+        else extract_code_from_file(file_path, location)
     )
 
-    return {"text": f"{kind} {label}", "kind": kind, "label": label, "code": code}
+    return {"text": f"{kind} {label}", "kind": kind, "label": label, "code": code, "uri": uri}

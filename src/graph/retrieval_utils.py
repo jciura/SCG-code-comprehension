@@ -3,6 +3,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from loguru import logger
 
+from graph.NeighborTypeEnum import NeighborTypeEnum
+from graph.RelationTypes import RelationTypes
 from src.graph.usage_finder import find_usage_nodes
 
 debug_results_limit = 5
@@ -23,14 +25,17 @@ def get_embedding_inputs(pairs: List[Tuple[str, str]], question: str) -> List[st
     """
     embeddings_input = []
     for key, value in pairs:
-        embeddings_input.append(f"{key} {value}" if key else value)
+        embeddings_input.append(f"{key.lower()} {value.lower()}" if key else value)
     if not embeddings_input:
         embeddings_input = [question]
     return embeddings_input
 
 
 def query_embeddings(
-    collection: Any, query_embeddings: List[Any], embeddings_input: List[str]
+    collection: Any,
+    query_embeddings: List[Any],
+    embeddings_input: List[str],
+    pairs: List[Tuple[str, str]],
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Queries ChromaDB with embeddings and returns results.
@@ -56,6 +61,7 @@ def query_embeddings(
             query_embeddings=[emb],
             n_results=1,
             include=["embeddings", "metadatas", "documents", "distances"],
+            where={"kind": pairs[i][0].upper()},
         )
         for j in range(len(query_result["ids"][0])):
             score = 1 - query_result["distances"][0][j]
@@ -140,6 +146,21 @@ def identify_target_entity(unique_results: List[Tuple[float, Dict[str, Any]]]) -
     return None
 
 
+def is_child_of(node_id_parent, node_id_candidate):
+    """
+    Check whether a node identifier is a child of another node.
+
+    A child node is identified by sharing the same base identifier
+    before '#' or '?' separators.
+    """
+    for sep in ["#", "?"]:
+        if sep in node_id_candidate:
+            parent, _ = node_id_candidate.split(sep, 1)
+            if parent == node_id_parent:
+                return True
+    return node_id_candidate == node_id_parent
+
+
 def expand_usage_results(
     unique_results: List[Tuple[float, Dict[str, Any]]],
     collection: Any,
@@ -168,7 +189,11 @@ def expand_usage_results(
 
 
 def expand_definition_neighbors(
-    unique_results: List[Tuple[float, Dict[str, Any]]], collection: Any
+    unique_results: List[Tuple[float, Dict[str, Any]]],
+    collection: Any,
+    max_neighbors: int,
+    neighbor_types: List[NeighborTypeEnum] = [NeighborTypeEnum.ANY],
+    relation_types: List[RelationTypes] = [RelationTypes.ANY],
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Expands definition results with neighbors if single object query.
@@ -176,60 +201,83 @@ def expand_definition_neighbors(
     Args:
         unique_results: List of unique results
         collection: Chroma collection handle
+        max_neighbors: Number of neighbors of each top node to get
+
 
     Returns:
         Expanded list with neighbor nodes
     """
     top_nodes = unique_results[: len(unique_results)]
-    if len(top_nodes) != 1:
-        return top_nodes
-
     current_nodes = top_nodes.copy()
     added_nodes = {node_data["node"] for _, node_data in top_nodes}
 
     for node_score, node_data in current_nodes:
         node_id = node_data["node"]
         metadata = node_data["metadata"]
+        parent_kind = metadata.get("kind", "")
 
-        related_entities_str = metadata.get("related_entities", "")
-        try:
-            related_entities = (
-                json.loads(related_entities_str)
-                if isinstance(related_entities_str, str)
-                else related_entities_str
+        related_entities_raw = metadata.get("related_entities")
+
+        if not related_entities_raw:
+            continue
+
+        related_entities = json.loads(related_entities_raw)
+
+        neighbors_to_fetch = []
+        seen = set()
+
+        for entity_id, relation in related_entities:
+            if entity_id not in seen and (
+                RelationTypes[relation.upper()] in relation_types
+                or RelationTypes.ANY in relation_types
+            ):
+                seen.add(entity_id)
+                neighbors_to_fetch.append(entity_id)
+
+        neighbors_added = 0
+
+        if not neighbors_to_fetch:
+            continue
+
+        neighbors = collection.get(ids=neighbors_to_fetch, include=["metadatas", "documents"])
+
+        combined_neighbors = list(
+            zip(neighbors["ids"], neighbors["metadatas"], neighbors["documents"])
+        )
+        combined_neighbors = sorted(
+            combined_neighbors, key=lambda x: x[1].get("combined", 0), reverse=True
+        )
+
+        for neighbor_id, neighbor_metadata, neighbor_doc in combined_neighbors:
+            if neighbors_added >= max_neighbors:
+                break
+
+            neighbor_kind = neighbor_metadata.get("kind", "")
+
+            if (
+                NeighborTypeEnum.ANY not in neighbor_types
+                and NeighborTypeEnum[neighbor_kind.upper()] not in neighbor_types
+            ):
+                continue
+
+            if (
+                parent_kind == "CLASS" and is_child_of(node_id, neighbor_id)
+            ) or neighbor_id in added_nodes:
+                continue
+
+            top_nodes.append(
+                (
+                    node_score,
+                    {
+                        "node": neighbor_id,
+                        "metadata": neighbor_metadata,
+                        "code": neighbor_doc or "",
+                    },
+                )
             )
-        except (json.JSONDecodeError, TypeError):
-            related_entities = []
+            added_nodes.add(neighbor_id)
+            neighbors_added += 1
 
-        neighbors_to_fetch = related_entities[:2]
-
-        if neighbors_to_fetch:
-            try:
-                neighbors = collection.get(
-                    ids=neighbors_to_fetch, include=["metadatas", "documents"]
-                )
-            except Exception as e:
-                logger.warning(f"ChromaDB get failed (likely telemetry): {e}")
-                neighbors = {"ids": [], "metadatas": [], "documents": []}
-
-            for j in range(len(neighbors["ids"])):
-                neighbor_id = neighbors["ids"][j]
-                neighbor_metadata = neighbors["metadatas"][j]
-                neighbor_kind = neighbor_metadata.get("kind", "")
-                neighbor_doc = neighbors["documents"][j] or ""
-                if (
-                    metadata.get("kind") == "CLASS"
-                    and (neighbor_kind == "METHOD" or neighbor_kind == "VARIABLE")
-                    and str(neighbor_id).startswith(f"{node_id}.")
-                    or neighbor_id in added_nodes
-                ):
-                    continue
-                top_nodes.append(
-                    (
-                        node_score,
-                        {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_doc},
-                    )
-                )
-                added_nodes.add(neighbor_id)
+        logger.info(f"Added nodes: {added_nodes}")
 
     return top_nodes
