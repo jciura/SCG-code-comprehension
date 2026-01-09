@@ -24,7 +24,7 @@ For quick access to a large project and to test the tool, download the project Z
 The archive contains:
 
 * A large project: [Apache Spark 3.3.0](https://github.com/apache/spark/releases/tag/v3.3.0)
-* A small testing project: [test_project](https://github.com/jciura/test_project)
+* A small Webinar Spring project: [Webinar-System]([https://github.com/jciura/test_project](https://github.com/jciura/Webinar-System))
 
 **Setup:**
 
